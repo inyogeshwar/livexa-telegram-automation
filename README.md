@@ -54,6 +54,7 @@ graph TD
 ```bash
 git clone https://github.com/inyogeshwar/livexa-telegram-automation.git
 cd livexa-telegram-automation
+chmod +x install.sh
 # Replace with your Bot Token
 sudo ./install.sh "123456:ABC-DEF-GHI-JKL"
 ```
