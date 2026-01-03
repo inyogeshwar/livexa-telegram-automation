@@ -28,9 +28,15 @@ fi
 pip3 install -r requirements.txt
 
 # 3. Setup Files
-mkdir -p /opt/livexa/storage/media
+mkdir -p /opt/livexa/storage
 cp bot.py /opt/livexa/
 cp requirements.txt /opt/livexa/
+
+# 3.1 Inject Token
+if [ -n "$TOKEN" ]; then
+    echo "🔑 Injecting Token in Code..."
+    sed -i "s|BOT_TOKEN = \".*\"|BOT_TOKEN = \"$TOKEN\"|" /opt/livexa/bot.py
+fi
 
 # 4. Service
 cat <<EOF > /etc/systemd/system/livexa-bot.service

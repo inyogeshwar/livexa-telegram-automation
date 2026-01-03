@@ -1,207 +1,265 @@
-import os, subprocess, signal, re, logging
+# ===============================
+# TELEGRAM IMAGE → YOUTUBE LIVE BOT
+# Image + MP3 (Drive/Telegram)
+# Katabump Free • Low CPU • Stable
+# ===============================
+
+import os
+import signal
+import subprocess
+import json
+import asyncio
 from pathlib import Path
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CommandHandler
+import logging
+
 import gdown
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-# Inject Token from Env or Install
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-STREAM_KEY = os.getenv("STREAM_KEY", "YOUR_STREAM_KEY")
+# -------------------------------
+# CONFIG
+# -------------------------------
+# This is a placeholder. install.sh will replace it.
+BOT_TOKEN = "8278727216:AAG6qnO6rsHlDxmtghbEBBoYBCnd9_C49f8" 
+PORT = 8080
 
-USER_ID = os.getenv("ADMIN_ID") # Optional Security
+BASE = Path("/opt/livexa") # Enforce Absolute Path for Systemd
+STORAGE = BASE / "storage"
+STORAGE.mkdir(exist_ok=True, parents=True)
 
-BASE = Path("/opt/livexa")
-MEDIA = BASE / "storage/media"
-MEDIA.mkdir(parents=True, exist_ok=True)
-
-IMAGE = BASE / "storage/image.jpg"
-PLAYLIST = BASE / "storage/playlist.txt"
-CONFIG_KEY = BASE / "storage/key.txt"
-
-FFMPEG = None
+ACTIVE = {}  # chat_id -> ffmpeg process
 
 # Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-def get_stream_key():
-    if CONFIG_KEY.exists():
-        return CONFIG_KEY.read_text().strip()
-    return STREAM_KEY
+# -------------------------------
+# HELPERS
+# -------------------------------
+def chat_dir(cid: int) -> Path:
+    d = STORAGE / str(cid)
+    d.mkdir(exist_ok=True)
+    return d
 
-def rebuild_playlist():
-    files = sorted([f for f in MEDIA.iterdir() if f.suffix in [".mp3", ".mp4"]])
-    with open(PLAYLIST, "w") as f:
-        for file in files:
-            safe_path = str(file).replace("'", "'\\''") 
-            f.write(f"file '{safe_path}'\n")
-    return len(files)
+def cfg_path(cid: int) -> Path:
+    return chat_dir(cid) / "config.json"
 
-def dashboard():
-    key_status = "✅ Set" if "YOUR_" not in get_stream_key() else "❌ Missing"
-    media_count = len(list(MEDIA.glob("*"))) if MEDIA.exists() else 0
-    
-    status = "🔴 LIVE" if FFMPEG else "⏹ STOPPED"
-    
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{status}", callback_data="status")],
-        [InlineKeyboardButton("▶ START LIVE", callback_data="start"), InlineKeyboardButton("⏹ STOP LIVE", callback_data="stop")],
-        [InlineKeyboardButton("🗑 Clear Playlist", callback_data="clear"), InlineKeyboardButton("🔄 Refresh", callback_data="refresh")]
-    ])
+def load_cfg(cid: int) -> dict:
+    if cfg_path(cid).exists():
+        return json.loads(cfg_path(cid).read_text())
+    return {}
 
-async def start_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+def save_cfg(cid: int, data: dict):
+    cfg_path(cid).write_text(json.dumps(data))
+
+# -------------------------------
+# COMMANDS
+# -------------------------------
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 **Livexa Playlist Bot V4**\n\n"
-        "1. Send **Stream Key** (text)\n"
-        "2. Send **Image** (thumbnail)\n"
-        "3. Send **MP3/MP4** or **Google Drive Link**\n"
-        "4. Use Buttons below.",
-        reply_markup=dashboard(),
-        parse_mode="Markdown"
+        "🎥 Image → YouTube Live Bot\n\n"
+        "/set_stream <YT_KEY>\n"
+        "/set_audio <GDRIVE_MP3_LINK>\n"
+        "/start_stream\n"
+        "/stop_stream\n"
+        "/status\n\n"
+        "📌 Send IMAGE + MP3 first"
     )
 
-async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if not msg: return
+async def set_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not ctx.args:
+        return await update.message.reply_text("Usage: /set_stream <YT_KEY>")
 
-    # STREAM KEY (Text looks like regex)
-    if msg.text and len(msg.text) > 10 and "-" in msg.text and "drive" not in msg.text:
-        CONFIG_KEY.write_text(msg.text.strip())
-        await msg.reply_text("🔑 Stream Key Saved!", reply_markup=dashboard())
-        return
+    cfg = load_cfg(update.effective_chat.id)
+    cfg["key"] = ctx.args[0]
+    save_cfg(update.effective_chat.id, cfg)
+
+    await update.message.reply_text("✅ Stream key saved")
+
+async def set_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not ctx.args:
+        return await update.message.reply_text("Usage: /set_audio <gdrive_mp3_link>")
+
+    cid = update.effective_chat.id
+    d = chat_dir(cid)
+    out = d / "audio.mp3"
+
+    await update.message.reply_text("⬇️ Downloading MP3 from Google Drive...")
+
+    try:
+        if out.exists():
+            out.unlink()
+
+        # Added Fuzzy=True and explicit output for reliability
+        await asyncio.to_thread(
+            gdown.download,
+            ctx.args[0],
+            str(out),
+            quiet=False,
+            fuzzy=True
+        )
+
+        if out.exists() and out.stat().st_size > 100 * 1024:
+            await update.message.reply_text("✅ MP3 saved from Google Drive")
+        else:
+            await update.message.reply_text("❌ Download failed (File too small or Permission Error)")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to download MP3: {e}")
+
+# -------------------------------
+# FILE UPLOAD (IMAGE / SMALL MP3)
+# -------------------------------
+async def upload_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    cid = msg.chat.id
+    d = chat_dir(cid)
 
     # IMAGE
     if msg.photo:
-        file = await msg.photo[-1].get_file()
-        await file.download_to_drive(IMAGE)
-        await msg.reply_text("🖼 Image Set. (Send files now)", reply_markup=dashboard())
+        photo = msg.photo[-1]
+        f = await photo.get_file()
+        await f.download_to_drive(d / "image.jpg")
+        return await msg.reply_text("🖼️ Image saved")
+
+    # MP3 (Telegram limit safe)
+    f = msg.audio or msg.document
+    if not f:
         return
 
-    # TELEGRAM FILE
-    doc = msg.document or msg.audio or msg.video
-    if doc:
-        name = doc.file_name or "media"
-        path = MEDIA / name
-        file = await doc.get_file()
-        await file.download_to_drive(path)
-        count = rebuild_playlist()
-        await msg.reply_text(f"✅ Added: {name}\nPlaylist Size: {count}", reply_markup=dashboard())
-        return
+    # Check limit? (User code had "20 * 1024 * 1024")
+    # if f.file_size and f.file_size > 20 * 1024 * 1024: ...
 
-    # GOOGLE DRIVE LINK
-    if msg.text and "drive.google.com" in msg.text:
-        match = re.search(r"/d/([a-zA-Z0-9_-]+)", msg.text)
-        if not match:
-            return await msg.reply_text("❌ Invalid Drive link")
+    name = (f.file_name or "").lower()
+    if not name.endswith(".mp3"):
+        return # Silent ignore non-mp3 docs
 
-        await msg.reply_text("⬇️ Downloading from Drive...")
-        try:
-            file_id = match.group(1)
-            # Use original filename from gdown if possible, else default
-            out = MEDIA / f"drive_{file_id}" 
-            # Note: gdown usually handles filename if output is dir, but here we enforce path?
-            # Actually better to let gdown save to dir
-            output_path = gdown.download(id=file_id, output=str(out), quiet=False, fuzzy=True)
-            
-            if not output_path or not os.path.exists(output_path):
-                 await msg.reply_text("❌ Download Failed (No file)")
-                 return
+    try:
+        file = await f.get_file()
+        await file.download_to_drive(d / "audio.mp3")
+        await msg.reply_text("🎵 MP3 saved")
+    except:
+        await msg.reply_text("❌ Failed to save MP3")
 
-            # Verify Size (Prevent HTML error pages)
-            if os.path.getsize(output_path) < 100 * 1024:
-                os.remove(output_path)
-                await msg.reply_text("❌ Error: Downloaded file is too small (likely HTML link error). Check permission.")
-                return
+# -------------------------------
+# START STREAM (IMAGE + MP3)
+# -------------------------------
+async def start_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    cid = update.effective_chat.id
 
-            rebuild_playlist()
-            await msg.reply_text(f"☁️ Added: {os.path.basename(output_path)}", reply_markup=dashboard())
-        except Exception as e:
-             await msg.reply_text(f"❌ Error: {e}")
-        return
+    if cid in ACTIVE and ACTIVE[cid].poll() is None:
+        return await update.message.reply_text("⚠️ Stream already running")
 
-async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    global FFMPEG
-    q = update.callback_query
-    await q.answer()
+    cfg = load_cfg(cid)
+    if "key" not in cfg:
+        return await update.message.reply_text("❌ Set stream key first")
 
-    if q.data == "refresh":
-        await q.edit_message_reply_markup(reply_markup=dashboard())
+    d = chat_dir(cid)
+    image = d / "image.jpg"
+    audio = d / "audio.mp3"
 
-    elif q.data == "clear":
-        for f in MEDIA.iterdir():
-            f.unlink()
-        rebuild_playlist()
-        await q.edit_message_text("🗑 Playlist Cleared.", reply_markup=dashboard())
+    if not image.exists() or not audio.exists():
+        return await update.message.reply_text("❌ Send IMAGE + MP3 first")
 
-    elif q.data == "start":
-        if FFMPEG:
-            return await q.answer("⚠️ Already live")
-            
-        key = get_stream_key()
-        if "YOUR_" in key:
-            return await q.answer("❌ Stream Key not set! Send it as text.", show_alert=True)
-            
-        if not IMAGE.exists():
-             return await q.answer("❌ No Image set! Send a photo.", show_alert=True)
+    rtmp = f"rtmp://a.rtmp.youtube.com/live2/{cfg['key']}"
 
-        if not PLAYLIST.exists() or os.path.getsize(PLAYLIST) == 0:
-             return await q.answer("❌ Playlist empty! Send MP3/MP4.", show_alert=True)
+    cmd = [
+        "ffmpeg",
+        "-re",
+        "-loop", "1",
+        "-i", str(image),
+        "-stream_loop", "-1",
+        "-i", str(audio),
 
-        cmd = [
-            "ffmpeg",
-            "-re",
-            "-loop", "1",
-            "-i", str(IMAGE),
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(PLAYLIST),
-            # Video Encoding
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-pix_fmt", "yuv420p",
-            # Audio Encoding
-            "-c:a", "aac",
-            "-b:a", "128k",
-            # End when audio ends? No, loop playlist?
-            # User code said "-shortest". This stops when shortest input ends.
-            # If Image loops forever (loop 1), and playlist ends, shortest stops it.
-            # To LOOP playlist, we need -stream_loop -1 before -i playlist?
-            # The previous user code used -stream_loop -1.
-            # The NEW code uses concat demuxer. Concat file can have 'stream_loop' directives but standard ffmpeg usage:
-            # -stream_loop -1 -i playlist.txt ? No, concat demuxer is finite unless file loops.
-            # We will assume single pass for now as per user code.
-            "-shortest", 
-            "-f", "flv",
-            f"rtmp://a.rtmp.youtube.com/live2/{key}"
-        ]
+        # ---- IMAGE → ANIMATED VIDEO ----
+        "-vf", "zoompan=z='min(zoom+0.0005,1.05)':d=125",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-tune", "stillimage",
+        "-profile:v", "baseline",
+        "-level", "3.0",
+        "-pix_fmt", "yuv420p",
+        "-r", "15",
+        "-g", "30",
+        "-s", "426x240",
+        "-b:v", "300k",
+        "-maxrate", "300k",
+        "-bufsize", "600k",
 
-        FFMPEG = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-        
-        # Check if it dies immediately (poor mans check)
-        await asyncio.sleep(2)
-        if FFMPEG.poll() is not None:
-             _, err = FFMPEG.communicate()
-             error_msg = err.decode()[-200:] if err else "Unknown Error"
-             FFMPEG = None
-             await q.edit_message_text(f"❌ FFMPEG CRASHED:\n{error_msg}", reply_markup=dashboard())
-        else:
-             await q.edit_message_text("🔴 LIVE STARTED!", reply_markup=dashboard())
+        # ---- AUDIO (FIXED 128 KBPS) ----
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ac", "2",
+        "-ar", "44100",
 
-    elif q.data == "stop":
-        if FFMPEG:
-            FFMPEG.terminate()
-            FFMPEG = None
-        await q.edit_message_text("⏹ LIVE STOPPED", reply_markup=dashboard())
+        "-f", "flv",
+        rtmp
+    ]
 
+    # Use start_new_session=True as requested for daemonization
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, # Capture stderr for debugging
+        start_new_session=True
+    )
+    
+    # Quick check for crash
+    await asyncio.sleep(2)
+    if proc.poll() is not None:
+         _, err = proc.communicate()
+         await update.message.reply_text(f"❌ Crash: {err.decode()[-200:]}")
+         return
+
+    ACTIVE[cid] = proc
+    await update.message.reply_text("🚀 Live started (Image + MP3)")
+
+# -------------------------------
+# STOP / STATUS
+# -------------------------------
+async def stop_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    cid = update.effective_chat.id
+    proc = ACTIVE.get(cid)
+
+    if not proc:
+        return await update.message.reply_text("⚠️ Not running")
+
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except:
+        pass
+
+    ACTIVE.pop(cid, None)
+    await update.message.reply_text("⏹ Stream stopped")
+
+async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    cid = update.effective_chat.id
+    live = cid in ACTIVE and ACTIVE[cid].poll() is None
+    await update.message.reply_text("✅ LIVE" if live else "💤 Offline")
+
+# -------------------------------
+# MAIN
+# -------------------------------
 def main():
-    if not BOT_TOKEN:
-        print("❌ Error: BOT_TOKEN env var missing")
-        return
-
-    print("✅ Bot V4 Started")
+    print("Bot Starting (User Code)...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.ALL, on_message))
-    app.add_handler(CallbackQueryHandler(on_button))
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("set_stream", set_stream))
+    app.add_handler(CommandHandler("set_audio", set_audio))
+    app.add_handler(CommandHandler("start_stream", start_stream))
+    app.add_handler(CommandHandler("stop_stream", stop_stream))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(MessageHandler(filters.ALL, upload_handler))
+
     app.run_polling()
 
 if __name__ == "__main__":
