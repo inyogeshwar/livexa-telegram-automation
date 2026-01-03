@@ -45,23 +45,26 @@ pip3 install -r requirements.txt --quiet --no-input
 # 4. SECURE BOOTSTRAP
 echo "🔐 Securing System..."
 # Ensure permissions before running bootstrap
-mkdir -p config storage playlists
-python3 core/bootstrap.py "$BOT_TOKEN"
+INSTALL_DIR="/opt/livexa"
+mkdir -p "$INSTALL_DIR"
+cp -r . "$INSTALL_DIR"
 
 # 5. USER & PERMISSIONS
 id -u livexa &>/dev/null || useradd -r -s /bin/false livexa
-chown -R livexa:livexa .
-chmod +x engine/*.sh
+chown -R livexa:livexa "$INSTALL_DIR"
+chmod +x "$INSTALL_DIR/engine/"*.sh
 
-# 6. SERVICE AUTO-START
+# 6. RUN BOOTSTRAP (Now inside /opt)
+cd "$INSTALL_DIR"
+python3 core/bootstrap.py "$BOT_TOKEN"
+
+# 7. SERVICE AUTO-START
 echo "⚙️  Starting Service..."
-SRV_PATH="/etc/systemd/system/livexa-bot.service"
-# We assume we are in the install dir. Modify service file path if needed.
-# But standardizing on /opt/livexa is safer.
-# Current dir logic:
-PWD=$(pwd)
-sed -i "s|/opt/livexa|$PWD|g" systemd/livexa-bot.service
-cp systemd/livexa-bot.service "$SRV_PATH"
+SRV_SOURCE="$INSTALL_DIR/systemd/livexa-bot.service"
+SRV_DEST="/etc/systemd/system/livexa-bot.service"
+
+cp "$SRV_SOURCE" "$SRV_DEST"
+# Ensure paths are correct in service file (Template uses /opt/livexa so no sed needed)
 systemctl daemon-reload
 systemctl enable livexa-bot --now
 

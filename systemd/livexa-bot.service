@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=livexa
 WorkingDirectory=/opt/livexa/core
 ExecStart=/usr/bin/python3 livexa_bot.py
 Restart=always
