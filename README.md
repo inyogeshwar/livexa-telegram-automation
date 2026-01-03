@@ -163,10 +163,15 @@ Upload your content to the playlist folders:
 2.  Send command `/start`.
 
 ### 🤖 Bot Commands
+
+#### 🔐 Admin Only
 *   `/start` - Initialize the bot and show the main control panel.
+*   **Control Panel** - All buttons (Start, Stop, Switch, Stats, Reboot) are restricted to Admins only.
+
+#### 🌍 Public
 *   `/about` - Show author credits and version information.
 
-### 🎛 Control Panel
+### 🎛 Control Panel (Admin)
 *   **▶ Start Live:** Trigger the FFmpeg engine. By default, it plays the `music` playlist.
 *   **⏹ Stop Live:** Immediately kills all stream processes.
 *   **📊 Stats:** Check if the stream is healthy and view server load.
