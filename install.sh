@@ -49,17 +49,23 @@ INSTALL_DIR="/opt/livexa"
 mkdir -p "$INSTALL_DIR"
 cp -r . "$INSTALL_DIR"
 
-# 5. RUN BOOTSTRAP (as root, so file is root owned)
+# 5. CONFIGURE (PURE BASH - NO PYTHON BOOTSTRAP)
+echo "🔧 Configuring..."
 cd "$INSTALL_DIR"
-python3 core/bootstrap.py "$BOT_TOKEN" "$ADMIN_ID"
 
-# 6. USER & PERMISSIONS (Apply chown LAST)
-echo "👤 Setting Permissions..."
+# Write Admin File directly
+echo "{\"admins\": [$ADMIN_ID]}" > storage/admins.json
+chmod 666 storage/admins.json
+
+# Write Config directly (Plain Token for foolproof setup)
+echo "LIVEXA_BOT_TOKEN_PLAIN=$BOT_TOKEN" > config/livexa.env
+chmod 644 config/livexa.env
+
+# 6. PERMISSIONS
+echo "👤 Setting User Permissions..."
 id -u livexa &>/dev/null || useradd -r -s /bin/false livexa
 chown -R livexa:livexa "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/engine/"*.sh
-# Ensure config is readable by owner (livexa) only
-chmod 600 "$INSTALL_DIR/config/livexa.env"
 
 # 7. SERVICE AUTO-START
 echo "⚙️  Starting Service..."
