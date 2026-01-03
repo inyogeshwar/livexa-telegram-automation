@@ -161,11 +161,16 @@ Upload your content to the playlist folders:
 
 1.  Open **@LivexaBot** in Telegram.
 2.  Send command `/start`.
-3.  **Control Panel:**
-    *   **▶ Start Live:** Trigger the FFmpeg engine. By default, it plays the `music` playlist.
-    *   **⏹ Stop Live:** Immediately kills all stream processes.
-    *   **📊 Stats:** Check if the stream is healthy and view server load.
-    *   **♻ Reboot:** Reboot the underlying VM (Emergency Only).
+
+### 🤖 Bot Commands
+*   `/start` - Initialize the bot and show the main control panel.
+*   `/about` - Show author credits and version information.
+
+### 🎛 Control Panel
+*   **▶ Start Live:** Trigger the FFmpeg engine. By default, it plays the `music` playlist.
+*   **⏹ Stop Live:** Immediately kills all stream processes.
+*   **📊 Stats:** Check if the stream is healthy and view server load.
+*   **♻ Reboot:** Reboot the underlying VM (Emergency Only).
 
 ---
 
