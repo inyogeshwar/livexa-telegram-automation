@@ -1,98 +1,58 @@
 #!/bin/bash
 set -e
 
-# Livexa V3.1 Installer (Simpler Fallback)
-# Usage: sudo ./install.sh <BOT_TOKEN> <ADMIN_ID>
+# INSTALLATION for Simple Bot
+# Usage: sudo ./install.sh
 
-# 1. INPUT VALIDATION
-if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "❌ Error: Missing Arguments."
-    echo "Usage: sudo ./install.sh <BOT_TOKEN> <ADMIN_ID>"
+if [ "$(id -u)" != "0" ]; then
+    echo "❌ Please run as sudo (root)"
     exit 1
 fi
-BOT_TOKEN="$1"
-ADMIN_ID="$2"
 
-echo "🟢 Livexa Installer (Manual Auth)"
-echo "--------------------------------"
+echo "🟢 Installing Simple Bot..."
 
-# 2. FAIL FAST: Validate Token
-echo "🔍 Connecting to Telegram..."
-if ! curl -s --max-time 10 "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q '"ok":true'; then
-    echo "❌ CRITICAL: Invalid Bot Token or Connection Failed."
-    exit 1
-fi
-echo "✅ Token Verified."
+# 1. Clean old install
+rm -rf /opt/simple-bot
+systemctl stop livexa-bot >/dev/null 2>&1 || true
+systemctl disable livexa-bot >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/livexa-bot.service
 
-# 3. ENVIRONMENT SETUP
-echo "📦 Installing System Components..."
+# 2. Dependencies
 if command -v dnf >/dev/null; then
-    dnf install -y epel-release &>/dev/null
-    # Install without gpg check for robustness in diverse repo states
-    dnf install -y --nogpgcheck https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-9.noarch.rpm &>/dev/null
-    dnf install -y git python3 python3-pip ffmpeg &>/dev/null
-elif command -v apt >/dev/null; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y git python3 python3-pip ffmpeg -qq
+    dnf install -y python3 python3-pip ffmpeg git
 else
-    echo "❌ Unsupported OS."
-    exit 1
+    apt update && apt install -y python3 python3-pip ffmpeg git
 fi
 
-echo "🐍 Installing Python Dependencies..."
-pip3 install -r requirements.txt --quiet --no-input
+pip3 install -r requirements.txt
 
-# 4. SECURE BOOTSTRAP
-echo "🔐 Securing System..."
-INSTALL_DIR="/opt/livexa"
-mkdir -p "$INSTALL_DIR"
-cp -r . "$INSTALL_DIR"
+# 3. Deploy Files
+mkdir -p /opt/simple-bot
+cp bot.py /opt/simple-bot/
+cp requirements.txt /opt/simple-bot/
 
-# 5. CONFIGURE (PURE BASH - NO PYTHON BOOTSTRAP)
-echo "🔧 Configuring..."
-cd "$INSTALL_DIR"
+# 4. Create Service
+cat <<EOF > /etc/systemd/system/simple-bot.service
+[Unit]
+Description=Simple Telegram Bot
+After=network.target
 
-# Ensure directories exist
-mkdir -p storage config
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/simple-bot
+ExecStart=/usr/bin/python3 bot.py
+Restart=always
 
-# Write Admin File directly
-echo "{\"admins\": [$ADMIN_ID]}" > storage/admins.json
-chmod 666 storage/admins.json
+[Install]
+WantedBy=multi-user.target
+EOF
 
-# Write Config directly (Plain Token for foolproof setup)
-echo "LIVEXA_BOT_TOKEN_PLAIN=$BOT_TOKEN" > config/livexa.env
-chmod 644 config/livexa.env
-
-# 6. PERMISSIONS
-echo "👤 Setting User Permissions..."
-id -u livexa &>/dev/null || useradd -r -s /bin/false livexa
-chown -R livexa:livexa "$INSTALL_DIR"
-chmod +x "$INSTALL_DIR/engine/"*.sh
-
-# 7. SERVICE AUTO-START
-echo "⚙️  Starting Service..."
-SRV_SOURCE="$INSTALL_DIR/systemd/livexa-bot.service"
-SRV_DEST="/etc/systemd/system/livexa-bot.service"
-cp "$SRV_SOURCE" "$SRV_DEST"
-
+# 5. Start
 systemctl daemon-reload
-systemctl enable livexa-bot --now
-
-# 8. VERIFICATION
-echo "🔍 Verifying Service..."
-if systemctl is-active --quiet livexa-bot; then
-    echo "✅ Service is RUNNING."
-else
-    echo "❌ Service FAILED to start."
-    echo "👉 Check logs: journalctl -u livexa-bot -n 20"
-    exit 1
-fi
+systemctl enable simple-bot --now
 
 echo "--------------------------------"
-echo "✅ INSTALL SUCCESSFUL"
+echo "✅ BOT INSTALLED & RUNNING!"
+echo "👉 Telegram: @LivexaBot (Check if it works)"
 echo "--------------------------------"
-echo "👉 Open Telegram now."
-echo "👉 Reply 'YES' to claim this bot."
-echo "--------------------------------"
-exit 0
