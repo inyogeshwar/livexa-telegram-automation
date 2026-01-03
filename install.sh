@@ -44,29 +44,40 @@ pip3 install -r requirements.txt --quiet --no-input
 
 # 4. SECURE BOOTSTRAP
 echo "🔐 Securing System..."
-# Ensure permissions before running bootstrap
 INSTALL_DIR="/opt/livexa"
 mkdir -p "$INSTALL_DIR"
 cp -r . "$INSTALL_DIR"
 
-# 5. USER & PERMISSIONS
+# 5. RUN BOOTSTRAP (as root, so file is root owned)
+cd "$INSTALL_DIR"
+python3 core/bootstrap.py "$BOT_TOKEN"
+
+# 6. USER & PERMISSIONS (Apply chown LAST)
+echo "👤 Setting Permissions..."
 id -u livexa &>/dev/null || useradd -r -s /bin/false livexa
 chown -R livexa:livexa "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/engine/"*.sh
-
-# 6. RUN BOOTSTRAP (Now inside /opt)
-cd "$INSTALL_DIR"
-python3 core/bootstrap.py "$BOT_TOKEN"
+# Ensure config is readable by owner (livexa) only
+chmod 600 "$INSTALL_DIR/config/livexa.env"
 
 # 7. SERVICE AUTO-START
 echo "⚙️  Starting Service..."
 SRV_SOURCE="$INSTALL_DIR/systemd/livexa-bot.service"
 SRV_DEST="/etc/systemd/system/livexa-bot.service"
-
 cp "$SRV_SOURCE" "$SRV_DEST"
-# Ensure paths are correct in service file (Template uses /opt/livexa so no sed needed)
+
 systemctl daemon-reload
 systemctl enable livexa-bot --now
+
+# 8. VERIFICATION
+echo "🔍 Verifying Service..."
+if systemctl is-active --quiet livexa-bot; then
+    echo "✅ Service is RUNNING."
+else
+    echo "❌ Service FAILED to start."
+    echo "👉 Check logs: journalctl -u livexa-bot -n 20"
+    exit 1
+fi
 
 echo "--------------------------------"
 echo "✅ INSTALL SUCCESSFUL"
