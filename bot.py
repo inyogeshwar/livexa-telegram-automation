@@ -100,9 +100,20 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             out = MEDIA / f"drive_{file_id}" 
             # Note: gdown usually handles filename if output is dir, but here we enforce path?
             # Actually better to let gdown save to dir
-            gdown.download(id=file_id, output=str(out), quiet=False)
+            output_path = gdown.download(id=file_id, output=str(out), quiet=False, fuzzy=True)
+            
+            if not output_path or not os.path.exists(output_path):
+                 await msg.reply_text("❌ Download Failed (No file)")
+                 return
+
+            # Verify Size (Prevent HTML error pages)
+            if os.path.getsize(output_path) < 100 * 1024:
+                os.remove(output_path)
+                await msg.reply_text("❌ Error: Downloaded file is too small (likely HTML link error). Check permission.")
+                return
+
             rebuild_playlist()
-            await msg.reply_text("☁️ Drive file added!", reply_markup=dashboard())
+            await msg.reply_text(f"☁️ Added: {os.path.basename(output_path)}", reply_markup=dashboard())
         except Exception as e:
              await msg.reply_text(f"❌ Error: {e}")
         return
@@ -163,8 +174,17 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"rtmp://a.rtmp.youtube.com/live2/{key}"
         ]
 
-        FFMPEG = subprocess.Popen(cmd)
-        await q.edit_message_text("🔴 LIVE STARTED!", reply_markup=dashboard())
+        FFMPEG = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+        
+        # Check if it dies immediately (poor mans check)
+        await asyncio.sleep(2)
+        if FFMPEG.poll() is not None:
+             _, err = FFMPEG.communicate()
+             error_msg = err.decode()[-200:] if err else "Unknown Error"
+             FFMPEG = None
+             await q.edit_message_text(f"❌ FFMPEG CRASHED:\n{error_msg}", reply_markup=dashboard())
+        else:
+             await q.edit_message_text("🔴 LIVE STARTED!", reply_markup=dashboard())
 
     elif q.data == "stop":
         if FFMPEG:
