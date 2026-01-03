@@ -31,14 +31,14 @@ ffmpeg \
     -map 0:v \
     -map 1:a \
     -c:v libx264 \
-    -preset ultrafast \
+    -preset veryfast \
     -pix_fmt yuv420p \
-    -r 25 \
-    -g 50 \
-    -s 426x240 \
-    -b:v 300k \
-    -maxrate 300k \
-    -bufsize 600k \
+    -r 30 \
+    -g 60 \
+    -s 1280x720 \
+    -b:v 3000k \
+    -maxrate 3000k \
+    -bufsize 6000k \
     -c:a aac \
     -b:a 128k \
     -ac 2 \
