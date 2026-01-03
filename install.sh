@@ -1,18 +1,19 @@
 #!/bin/bash
 set -e
 
-# Livexa V3.1 One-Click Installer
-# Usage: sudo ./install.sh <BOT_TOKEN>
+# Livexa V3.1 Installer (Simpler Fallback)
+# Usage: sudo ./install.sh <BOT_TOKEN> <ADMIN_ID>
 
 # 1. INPUT VALIDATION
-if [ -z "$1" ]; then
-    echo "❌ Error: Missing Bot Token."
-    echo "Usage: sudo ./install.sh <YOUR_BOT_TOKEN>"
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "❌ Error: Missing Arguments."
+    echo "Usage: sudo ./install.sh <BOT_TOKEN> <ADMIN_ID>"
     exit 1
 fi
 BOT_TOKEN="$1"
+ADMIN_ID="$2"
 
-echo "🟢 Starting Livexa Installer..."
+echo "🟢 Livexa Installer (Manual Auth)"
 echo "--------------------------------"
 
 # 2. FAIL FAST: Validate Token

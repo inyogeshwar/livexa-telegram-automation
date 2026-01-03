@@ -1,60 +1,58 @@
 import sys
 import os
+import json
 from cryptography.fernet import Fernet
-# We avoid local imports that might depend on env vars being present
-# to ensure this script runs standalone during install.
 
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), '../config')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'livexa.env')
+STORAGE_DIR = os.path.join(os.path.dirname(__file__), '../storage')
+ADMINS_PATH = os.path.join(STORAGE_DIR, 'admins.json')
 
-def bootstrap_system(token_plain):
+def bootstrap_system(token_plain, admin_id):
     """
-    Generates a fresh Livexa configuration:
-    1. Generates a new AES-256 Secret Key.
-    2. Encrypts the provided Bot Token.
-    3. Writes the secure config file at config/livexa.env.
+    1. Generates Key & Encrypts Token.
+    2. Writes livexa.env.
+    3. Writes storage/admins.json directly.
     """
-    if not token_plain:
-        print("❌ Error: No token provided.")
+    if not token_plain or not admin_id:
+        print("❌ Error: Missing Token or Admin ID.")
         sys.exit(1)
 
     print(f"🔐 Securing Credentials...")
-
-    # 1. Generate Master Key
+    
+    # 1. Encrypt Token
     key = Fernet.generate_key()
     cipher = Fernet(key)
-    secret_key_str = key.decode()
+    token_enc = cipher.encrypt(token_plain.encode()).decode()
 
-    # 2. Encrypt Token
-    token_bytes = token_plain.encode()
-    token_enc = cipher.encrypt(token_bytes).decode()
-
-    # 3. Generate Config Content
+    # 2. Write Config
     config_content = (
-        "# 🔴 Livexa Production Configuration\n"
-        "# AUTO-GENERATED - DO NOT EDIT MANUALLY\n\n"
-        f"LIVEXA_SECRET_KEY={secret_key_str}\n"
+        f"LIVEXA_SECRET_KEY={key.decode()}\n"
         f"LIVEXA_BOT_TOKEN_ENC={token_enc}\n"
-        f"LIVEXA_ADMIN_IDS=\n"  # Empty initially, handled by Setup Wizard
     )
-
-    # 4. Write File
+    
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
         with open(CONFIG_PATH, 'w') as f:
             f.write(config_content)
-        
-        # Set restricted permissions (600)
-        os.chmod(CONFIG_PATH, 0o600)
-        print("✅ Configuration secured.")
-        
+        os.chmod(CONFIG_PATH, 0o644) # Make readable for now to avoid permission hell
+
+        # 3. Write Admin
+        os.makedirs(STORAGE_DIR, exist_ok=True)
+        admin_data = {"admins": [int(admin_id)]}
+        with open(ADMINS_PATH, 'w') as f:
+            json.dump(admin_data, f)
+        os.chmod(ADMINS_PATH, 0o666) # Ensure readable by everyone for now
+
+        print(f"✅ Configured. Admin ID {admin_id} authorized.")
+
     except Exception as e:
-        print(f"❌ Failed to write config: {e}")
+        print(f"❌ Bootstrap Failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python3 bootstrap.py <TOKEN>")
+    if len(sys.argv) < 3:
+        print("Usage: python3 bootstrap.py <TOKEN> <ADMIN_ID>")
         sys.exit(1)
     
-    bootstrap_system(sys.argv[1])
+    bootstrap_system(sys.argv[1], sys.argv[2])
