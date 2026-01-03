@@ -1,31 +1,35 @@
-import os
 from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
-
-# Load Admin IDs as a set of integers
-ADMIN_IDS = set()
-raw_ids = os.getenv('LIVEXA_ADMIN_IDS', '')
-if raw_ids:
-    ADMIN_IDS = {int(x.strip()) for x in raw_ids.split(',') if x.strip().isdigit()}
+from admin_manager import admin_manager
 
 def restricted(func):
     """
-    Decorator to restrict usage of bot commands to authorized admins.
+    Decorator to restrict usage to dynamically managed admins.
     """
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
-            print(f"WARNING: Unauthorized access attempt by {user_id}")
-            # Optional: Notify admin or just ignore
+        # Handle different update types
+        user = None
+        if update.message:
+            user = update.message.from_user
+        elif update.callback_query:
+            user = update.callback_query.from_user
+        elif update.effective_user:
+            user = update.effective_user
+            
+        if not user:
+            return # Should not happen usually
+
+        if not admin_manager.is_admin(user.id):
+            print(f"WARNING: Unauthorized access attempt by {user.id} ({user.username})")
+            # Silent ignore or simple alert if it's a direct message
             if update.message:
-                await update.message.reply_text("⛔ Unauthorized Access.")
+                # Optional: Reply for UX, or silent for security. V3 Req says silent/ignore
+                pass 
             elif update.callback_query:
-                await update.callback_query.answer("⛔ Unauthorized Access.", show_alert=True)
+                await update.callback_query.answer("⛔ Unauthorized", show_alert=True)
             return
+            
         return await func(update, context, *args, **kwargs)
     return wrapped
-
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
