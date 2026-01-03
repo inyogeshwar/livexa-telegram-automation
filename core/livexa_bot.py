@@ -589,5 +589,8 @@ def main():
     app.add_handler(CallbackQueryHandler(del_files_menu_callback, pattern='^del_files_menu_'))
     app.add_handler(CallbackQueryHandler(del_file_confirm_callback, pattern='^del_file_confirm_'))
 
-    print("Bot Started (V3.1 Zero-CLI)...")
+    print("--------------------------------------------------")
+    print(f"✅ BOT STARTED. SETUP MODE: {len(admin_manager.get_admins()) == 0}")
+    print(f"   Admins Found: {len(admin_manager.get_admins())}")
+    print("--------------------------------------------------")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
