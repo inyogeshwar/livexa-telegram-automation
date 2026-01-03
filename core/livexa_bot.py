@@ -517,79 +517,77 @@ def main():
 
     app = Application.builder().token(token).build()
 
-    # 2. Check Admin State (First Run?)
-    # We check dynamically per update, but we can register a global Fallback
-    # Ideally, we separate handlers based on state, but 'restricted' decorator handles auth.
-    # We need a 'setup_filter'
+    # 2. Handler Logic
+    # We want SetupWizard to intercept EVERYTHING if no admins exist.
+    # But filters.COMMAND ('/start') takes precedence in PTB if we don't group properly.
+    
+    # We will use a custom global handler for dispatching based on state.
+    # This is more robust than relying on filter priority for critical security flows.
 
-    # 3. Register Handlers
-    
-    # Global Setup Handler (Higher Priority)
-    # Checks if admins specific to this system exist? 
-    # Actually, if TOTAL admins == 0, system is in Setup Mode for EVERYONE
-    
-    async def global_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Router to decide if we are in Setup or Normal mode
+    async def global_dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # 1. SETUP MODE CHECK
         if not admin_manager.get_admins():
+            # In Setup Mode, ONLY setup_wizard_handler processes the update
             await setup_wizard_handler(update, context)
-            return
+            return # Stop propagation
 
-        # Normal Mode - Process other handlers
-        # Since we use app.add_handler, this router manual approach is tricky with PTB.
-        # correct approach: Add Setup Handler with a Filter that checks admin count
+        # 2. NORMAL MODE CHECK (Admin Auth verified by @restricted decorator on individual handlers)
+        # We need to manually dispatch or let PTB handle it?
+        # PTB architecture is based on handlers.
+        # If we return here, no other handlers run? That's true if we use a single entry point.
+        # But re-implementing dispatch is complex.
+        
+        # BETTER APPROACH:
+        # Use simple Filters, but ensure Setup Handler captures COMMANDS too.
     
     class SetupFilter(filters.BaseFilter):
         def filter(self, message):
-            return len(admin_manager.get_admins()) == 0
+            return hasattr(message, 'text') and len(admin_manager.get_admins()) == 0
 
     setup_filter = SetupFilter()
 
-    # SETUP HANDLER (Exclusive Group 0)
-    app.add_handler(MessageHandler(setup_filter & filters.TEXT, setup_wizard_handler), group=0)
+    # GROUP 0: SETUP (Intercepts everything if no admins)
+    # We must explicitly handle Commands in Setup too, otherwise /start goes to Group 1
+    app.add_handler(MessageHandler(setup_filter, setup_wizard_handler), group=0)
 
-    # NORMAL HANDLERS (Group 1 - Only run if SetupFilter failed / Admins Exist)
-    # Note: PTB doesn't stop propagation automatically unless we use StopPropagation
-    # Simpler: Use common handlers, let 'restricted' check verify auth.
-    # But 'restricted' blocks non-admins.
-    # So once claimed, the new admin IS in the list, so Restricted passes.
+    # GROUP 1: NORMAL (Run only if Setup didn't catch it? No, PTB runs all groups parallel unless stopped)
+    # We need to PREVENT Group 1 from running if Setup is active.
+    # The clean way: Setup Handler raises ApplicationHandlerStop? 
+    # Or strict filters on Group 1 (NotSetupFilter).
     
-    # 4. Normal Handlers
-    app.add_handler(CommandHandler("start", start), group=1)
-    
-    # Text Inputs
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~setup_filter, handle_text_inputs), group=1)
-    
-    # Media Inputs
-    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.PHOTO, handle_media), group=1)
+    class IsConfiguredFilter(filters.BaseFilter):
+        def filter(self, message):
+             return len(admin_manager.get_admins()) > 0
+             
+    is_configured = IsConfiguredFilter()
 
-    # Menus
-    app.add_handler(CallbackQueryHandler(menu_start, pattern='^menu_start$'), group=1)
-    app.add_handler(CallbackQueryHandler(menu_playlists, pattern='^menu_playlists$'), group=1)
-    app.add_handler(CallbackQueryHandler(menu_keys, pattern='^menu_keys$'), group=1)
-    app.add_handler(CallbackQueryHandler(menu_admins, pattern='^menu_admins$'), group=1)
-    app.add_handler(CallbackQueryHandler(menu_bots, pattern='^menu_bots$'), group=1)
-    app.add_handler(CallbackQueryHandler(main_menu, pattern='^main_menu$'), group=1)
-    
-    # Actions
-    app.add_handler(CallbackQueryHandler(action_stop, pattern='^action_stop$'), group=1)
-    app.add_handler(CallbackQueryHandler(action_refresh, pattern='^action_refresh$'), group=1)
-    
-    # Inputs & Selections
-    app.add_handler(CallbackQueryHandler(input_create_pl, pattern='^input_create_pl$'), group=1)
-    app.add_handler(CallbackQueryHandler(input_add_key, pattern='^input_add_key$'), group=1)
-    app.add_handler(CallbackQueryHandler(input_add_admin, pattern='^input_add_admin$'), group=1)
-    app.add_handler(CallbackQueryHandler(input_del_admin, pattern='^input_del_admin$'), group=1)
-    app.add_handler(CallbackQueryHandler(input_add_bot, pattern='^input_add_bot$'), group=1)
-    
-    # Dynamic
-    app.add_handler(CallbackQueryHandler(view_pl, pattern='^view_pl_'), group=1)
-    app.add_handler(CallbackQueryHandler(start_sel_pl, pattern='^start_sel_pl_'), group=1)
-    app.add_handler(CallbackQueryHandler(start_sel_key, pattern='^start_sel_key_'), group=1)
-    app.add_handler(CallbackQueryHandler(delete_pl_callback, pattern='^del_pl_'), group=1)
-    app.add_handler(CallbackQueryHandler(manage_playlist_callback, pattern='^manage_pl_'), group=1)
-    app.add_handler(CallbackQueryHandler(delete_playlist_callback, pattern='^del_pl_confirm_'), group=1)
-    app.add_handler(CallbackQueryHandler(del_files_menu_callback, pattern='^del_files_menu_'), group=1)
-    app.add_handler(CallbackQueryHandler(del_file_confirm_callback, pattern='^del_file_confirm_'), group=1)
+    # Handlers (Only active when configured)
+    app.add_handler(CommandHandler("start", start, filters=is_configured), group=0)
+    app.add_handler(MessageHandler(is_configured & filters.TEXT & ~filters.COMMAND, handle_text_inputs), group=0)
+    app.add_handler(MessageHandler(is_configured & (filters.ATTACHMENT | filters.PHOTO), handle_media), group=0)
+
+    # Callbacks (Always active, auth checked inside)
+    app.add_handler(CallbackQueryHandler(menu_start, pattern='^menu_start$'))
+    app.add_handler(CallbackQueryHandler(menu_playlists, pattern='^menu_playlists$'))
+    app.add_handler(CallbackQueryHandler(menu_keys, pattern='^menu_keys$'))
+    app.add_handler(CallbackQueryHandler(menu_admins, pattern='^menu_admins$'))
+    app.add_handler(CallbackQueryHandler(menu_bots, pattern='^menu_bots$'))
+    app.add_handler(CallbackQueryHandler(main_menu, pattern='^main_menu$'))
+    app.add_handler(CallbackQueryHandler(action_stop, pattern='^action_stop$'))
+    app.add_handler(CallbackQueryHandler(action_refresh, pattern='^action_refresh$'))
+    app.add_handler(CallbackQueryHandler(input_create_pl, pattern='^input_create_pl$'))
+    app.add_handler(CallbackQueryHandler(input_add_key, pattern='^input_add_key$'))
+    app.add_handler(CallbackQueryHandler(input_add_admin, pattern='^input_add_admin$'))
+    app.add_handler(CallbackQueryHandler(input_del_admin, pattern='^input_del_admin$'))
+    app.add_handler(CallbackQueryHandler(input_add_bot, pattern='^input_add_bot$'))
+    app.add_handler(CallbackQueryHandler(view_pl, pattern='^view_pl_'))
+    app.add_handler(CallbackQueryHandler(start_sel_pl, pattern='^start_sel_pl_'))
+    app.add_handler(CallbackQueryHandler(start_sel_key, pattern='^start_sel_key_'))
+    app.add_handler(CallbackQueryHandler(delete_pl_callback, pattern='^del_pl_'))
+    app.add_handler(CallbackQueryHandler(manage_playlist_callback, pattern='^manage_pl_'))
+    app.add_handler(CallbackQueryHandler(delete_playlist_callback, pattern='^del_pl_confirm_'))
+    app.add_handler(CallbackQueryHandler(del_files_menu_callback, pattern='^del_files_menu_'))
+    app.add_handler(CallbackQueryHandler(del_file_confirm_callback, pattern='^del_file_confirm_'))
 
     print("Bot Started (V3.1 Zero-CLI)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
