@@ -26,7 +26,7 @@ from telegram.ext import (
 # CONFIG
 # -------------------------------
 # This is a placeholder. install.sh will replace it.
-BOT_TOKEN = "8278727216:AAG6qnO6rsHlDxmtghbEBBoYBCnd9_C49f8" 
+BOT_TOKEN = "7811290443:AAE4F53WPDCHcIZJodLTQooRXQx10TMtR28" 
 PORT = 8080
 
 BASE = Path("/opt/livexa") # Enforce Absolute Path for Systemd
