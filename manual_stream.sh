@@ -35,10 +35,10 @@ ffmpeg \
     -pix_fmt yuv420p \
     -r 30 \
     -g 60 \
-    -s 1280x720 \
-    -b:v 3000k \
-    -maxrate 3000k \
-    -bufsize 6000k \
+    -s 1920x1080 \
+    -b:v 6000k \
+    -maxrate 6000k \
+    -bufsize 12000k \
     -c:a aac \
     -b:a 128k \
     -ac 2 \
