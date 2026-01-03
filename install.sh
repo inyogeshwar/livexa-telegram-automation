@@ -53,6 +53,9 @@ cp -r . "$INSTALL_DIR"
 echo "🔧 Configuring..."
 cd "$INSTALL_DIR"
 
+# Ensure directories exist
+mkdir -p storage config
+
 # Write Admin File directly
 echo "{\"admins\": [$ADMIN_ID]}" > storage/admins.json
 chmod 666 storage/admins.json
