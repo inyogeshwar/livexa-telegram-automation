@@ -50,17 +50,16 @@ graph TD
 
 ## 📦 Installation
 
-### Prerequisites
-*   CentOS Stream 9 / Ubuntu 20.04+
-*   Python 3.9+
-*   Root Access
+## 📦 Installation (Quick Start)
 
-### 1. Install
+### 1. Run Installer
+Run this on any Linux VM (CentOS Stream 9 / Ubuntu 22.04):
 ```bash
 git clone https://github.com/inyogeshwar/livexa-telegram-automation.git
 cd livexa-telegram-automation
 sudo ./install.sh
 ```
+*See [Infrastructure Guide](docs/INFRASTRUCTURE.md) for detailed hardware specs and OS support.*
 
 ### 2. Configure (Once)
 Edit `/opt/livexa/config/livexa.env`:
