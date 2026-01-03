@@ -1,61 +1,74 @@
 #!/bin/bash
 set -e
 
-# Livexa V3.1 Installer (Zero-CLI)
+# Livexa V3.1 One-Click Installer
+# Usage: sudo ./install.sh <BOT_TOKEN>
 
-# 1. Input Validation
-if [[ "$1" == "--token" && -n "$2" ]]; then
-    BOT_TOKEN="$2"
-else
-    echo "❌ Error: Bot Token required."
-    echo "Usage: sudo ./install.sh --token <YOUR_BOT_TOKEN>"
+# 1. INPUT VALIDATION
+if [ -z "$1" ]; then
+    echo "❌ Error: Missing Bot Token."
+    echo "Usage: sudo ./install.sh <YOUR_BOT_TOKEN>"
     exit 1
 fi
+BOT_TOKEN="$1"
 
-echo "🟢 Livexa V3.1 Installer"
+echo "🟢 Starting Livexa Installer..."
 echo "--------------------------------"
 
-# 2. Validate Token
-echo "🔍 Validating Bot Token..."
-if curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q '"ok":true'; then
-    echo "✅ Token Valid."
-else
-    echo "❌ Invalid Bot Token. Please check and try again."
+# 2. FAIL FAST: Validate Token
+echo "🔍 Connecting to Telegram..."
+if ! curl -s --max-time 10 "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q '"ok":true'; then
+    echo "❌ CRITICAL: Invalid Bot Token or Connection Failed."
     exit 1
 fi
+echo "✅ Token Verified."
 
-# 3. System Updates & Dependencies
-echo "📦 Installing Dependencies..."
+# 3. ENVIRONMENT SETUP
+echo "📦 Installing System Components..."
 if command -v dnf >/dev/null; then
-    dnf install -y epel-release
-    dnf install -y git python3 python3-pip ffmpeg
+    dnf install -y epel-release &>/dev/null
+    # Install without gpg check for robustness in diverse repo states
+    dnf install -y --nogpgcheck https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-9.noarch.rpm &>/dev/null
+    dnf install -y git python3 python3-pip ffmpeg &>/dev/null
 elif command -v apt >/dev/null; then
-    apt update
-    apt install -y git python3 python3-pip ffmpeg
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y git python3 python3-pip ffmpeg -qq
 else
-    echo "❌ Unsupported OS. Use CentOS Stream 9 or Ubuntu."
+    echo "❌ Unsupported OS."
     exit 1
 fi
 
-# 4. Setup Python Environment
-echo "🐍 Installing Python Libs..."
-pip3 install -r requirements.txt
+echo "🐍 Installing Python Dependencies..."
+pip3 install -r requirements.txt --quiet --no-input
 
-# 5. Bootstrap Security (Encrypt Token)
-echo "🔐 Encrypting Credentials..."
+# 4. SECURE BOOTSTRAP
+echo "🔐 Securing System..."
+# Ensure permissions before running bootstrap
+mkdir -p config storage playlists
 python3 core/bootstrap.py "$BOT_TOKEN"
 
-# 6. Service Setup
-echo "⚙️ Configuring Systemd..."
-cp systemd/livexa-bot.service /etc/systemd/system/
+# 5. USER & PERMISSIONS
+id -u livexa &>/dev/null || useradd -r -s /bin/false livexa
+chown -R livexa:livexa .
+chmod +x engine/*.sh
+
+# 6. SERVICE AUTO-START
+echo "⚙️  Starting Service..."
+SRV_PATH="/etc/systemd/system/livexa-bot.service"
+# We assume we are in the install dir. Modify service file path if needed.
+# But standardizing on /opt/livexa is safer.
+# Current dir logic:
+PWD=$(pwd)
+sed -i "s|/opt/livexa|$PWD|g" systemd/livexa-bot.service
+cp systemd/livexa-bot.service "$SRV_PATH"
 systemctl daemon-reload
-systemctl enable livexa-bot
-systemctl start livexa-bot
+systemctl enable livexa-bot --now
 
 echo "--------------------------------"
-echo "✅ INSTALLATION COMPLETE"
+echo "✅ INSTALL SUCCESSFUL"
 echo "--------------------------------"
-echo "👉 Now open Telegram and find your bot."
-echo "👉 Use the /start command to claim your system."
+echo "👉 Open Telegram now."
+echo "👉 Reply 'YES' to claim this bot."
 echo "--------------------------------"
 exit 0

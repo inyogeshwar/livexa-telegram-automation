@@ -1,58 +1,52 @@
 import sys
 import os
-from encryption import security
-from dotenv import set_key
+from cryptography.fernet import Fernet
+# We avoid local imports that might depend on env vars being present
+# to ensure this script runs standalone during install.
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), '../config/livexa.env')
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), '../config')
+CONFIG_PATH = os.path.join(CONFIG_DIR, 'livexa.env')
 
-def bootstrap_token(token_plain):
+def bootstrap_system(token_plain):
     """
-    Encrypts the provided token and writes it to livexa.env.
+    Generates a fresh Livexa configuration:
+    1. Generates a new AES-256 Secret Key.
+    2. Encrypts the provided Bot Token.
+    3. Writes the secure config file at config/livexa.env.
     """
     if not token_plain:
-        print("Error: No token provided.")
+        print("❌ Error: No token provided.")
         sys.exit(1)
 
-    print(f"Encrypting token...")
-    token_enc = security.encrypt(token_plain)
-    
-    # Create env file if not exists
-    if not os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, 'w') as f:
-            f.write("# Livexa Configuration\n")
+    print(f"🔐 Securing Credentials...")
 
-    # Update .env securely
-    # We use python-dotenv set_key if available, or manual write
-    # Since set_key handles quoting and existing keys, we try to use it 
-    # OR simpler: manual write since we own the file structure.
-    
+    # 1. Generate Master Key
+    key = Fernet.generate_key()
+    cipher = Fernet(key)
+    secret_key_str = key.decode()
+
+    # 2. Encrypt Token
+    token_bytes = token_plain.encode()
+    token_enc = cipher.encrypt(token_bytes).decode()
+
+    # 3. Generate Config Content
+    config_content = (
+        "# 🔴 Livexa Production Configuration\n"
+        "# AUTO-GENERATED - DO NOT EDIT MANUALLY\n\n"
+        f"LIVEXA_SECRET_KEY={secret_key_str}\n"
+        f"LIVEXA_BOT_TOKEN_ENC={token_enc}\n"
+        f"LIVEXA_ADMIN_IDS=\n"  # Empty initially, handled by Setup Wizard
+    )
+
+    # 4. Write File
     try:
-        # Simple manual update to avoid python-dotenv dependency complexity in install script
-        # Read existing lines
-        lines = []
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, 'r') as f:
-                lines = f.readlines()
-        
-        new_lines = []
-        found = False
-        for line in lines:
-            if line.startswith("LIVEXA_BOT_TOKEN_ENC="):
-                new_lines.append(f"LIVEXA_BOT_TOKEN_ENC={token_enc}\n")
-                found = True
-            elif line.startswith("LIVEXA_BOT_TOKEN_PLAIN="):
-                # Remove plain token if present
-                continue
-            else:
-                new_lines.append(line)
-        
-        if not found:
-            new_lines.append(f"LIVEXA_BOT_TOKEN_ENC={token_enc}\n")
-            
+        os.makedirs(CONFIG_DIR, exist_ok=True)
         with open(CONFIG_PATH, 'w') as f:
-            f.writelines(new_lines)
-            
-        print("✅ Token encrypted and stored in config/livexa.env")
+            f.write(config_content)
+        
+        # Set restricted permissions (600)
+        os.chmod(CONFIG_PATH, 0o600)
+        print("✅ Configuration secured.")
         
     except Exception as e:
         print(f"❌ Failed to write config: {e}")
@@ -63,4 +57,4 @@ if __name__ == "__main__":
         print("Usage: python3 bootstrap.py <TOKEN>")
         sys.exit(1)
     
-    bootstrap_token(sys.argv[1])
+    bootstrap_system(sys.argv[1])
