@@ -1,28 +1,25 @@
 #!/bin/bash
-# Livexa Watchdog
+# Livexa Watchdog V2
 # Ensures FFmpeg runs 24/7 and restarts on failure
 
-STREAM_KEY="$1"
-PLAYLIST_NAME="$2"
+TARGET="$1"
+INPUT_SRC="$2"
+MODE="$3"
 
-if [ -z "$STREAM_KEY" ] || [ -z "$PLAYLIST_NAME" ]; then
-    echo "Usage: ./ffmpeg_watchdog.sh <STREAM_KEY> <PLAYLIST_NAME>"
+if [ -z "$TARGET" ] || [ -z "$INPUT_SRC" ]; then
+    echo "Usage: ./ffmpeg_watchdog.sh <STREAM_KEY> <INPUT_SOURCE> [MODE]"
     exit 1
 fi
 
-echo "Starting Watchdog for $PLAYLIST_NAME..."
+echo "Starting Watchdog (Mode: ${MODE:-V1})..."
 
 while true; do
-    echo "Starting FFmpeg Engine..."
+    echo "[$(date)] Starting Engine..."
     # Run the engine
-    bash ./ffmpeg_engine.sh "$STREAM_KEY" "$PLAYLIST_NAME"
+    bash ./ffmpeg_engine.sh "$TARGET" "$INPUT_SRC" "$MODE"
     
     EXIT_CODE=$?
     echo "FFmpeg exited with code $EXIT_CODE"
-    
-    # Simple logic: If it crashes, wait 5 seconds and restart
-    # If we stopped it manually (pkill), we might want to exit loop, but for now 
-    # the dispatcher uses 'pkill -f ffmpeg_watchdog' to kill this wrapper too.
     
     echo "Restarting in 5 seconds..."
     sleep 5
