@@ -51,7 +51,7 @@ cp -r . "$INSTALL_DIR"
 
 # 5. RUN BOOTSTRAP (as root, so file is root owned)
 cd "$INSTALL_DIR"
-python3 core/bootstrap.py "$BOT_TOKEN"
+python3 core/bootstrap.py "$BOT_TOKEN" "$ADMIN_ID"
 
 # 6. USER & PERMISSIONS (Apply chown LAST)
 echo "👤 Setting Permissions..."
