@@ -52,26 +52,23 @@ graph TD
 
 ## 📦 Installation (Quick Start)
 
-### 1. Run Installer
+### 1. Run Installer (The ONLY Command)
 Run this on any Linux VM (CentOS Stream 9 / Ubuntu 22.04):
 ```bash
 git clone https://github.com/inyogeshwar/livexa-telegram-automation.git
 cd livexa-telegram-automation
-sudo ./install.sh
-```
-*See [Infrastructure Guide](docs/INFRASTRUCTURE.md) for detailed hardware specs and OS support.*
-
-### 2. Configure (Once)
-Edit `/opt/livexa/config/livexa.env`:
-```ini
-LIVEXA_BOT_TOKEN_PLAIN=123456...
-LIVEXA_ADMIN_IDS=123456789
+# Pass your Bot Token here. Validates & Encrypts automatically.
+sudo ./install.sh --token "123456:ABC-DEF..."
 ```
 
-### 3. Start
-```bash
-systemctl start livexa-bot
-```
+### 2. Claim Ownership (Telegram)
+1.  Open your bot in Telegram.
+2.  Send `/start` (or any message).
+3.  Bot asks: **"Do you want to claim it as the Super Admin?"**
+4.  Reply **YES**.
+
+**🚀 DONE. You are now the Admin. The Dashboard will load.**
+
 
 **🚀 DONE. Close your terminal. Open Telegram.**
 

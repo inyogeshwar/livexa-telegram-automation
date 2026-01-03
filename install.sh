@@ -1,56 +1,61 @@
 #!/bin/bash
-# Livexa Installer for CentOS Stream 9
-# Installs FFmpeg, Python Dependencies, and sets up Systemd
+set -e
 
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root"
-  exit 1
+# Livexa V3.1 Installer (Zero-CLI)
+
+# 1. Input Validation
+if [[ "$1" == "--token" && -n "$2" ]]; then
+    BOT_TOKEN="$2"
+else
+    echo "❌ Error: Bot Token required."
+    echo "Usage: sudo ./install.sh --token <YOUR_BOT_TOKEN>"
+    exit 1
 fi
 
-echo "==========================================="
-echo "   Livexa Enterprise Installer"
-echo "==========================================="
+echo "🟢 Livexa V3.1 Installer"
+echo "--------------------------------"
 
-echo "[1/6] DNF Update & Dependencies..."
-dnf update -y
-dnf install -y python3 python3-pip git wget tar
+# 2. Validate Token
+echo "🔍 Validating Bot Token..."
+if curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe" | grep -q '"ok":true'; then
+    echo "✅ Token Valid."
+else
+    echo "❌ Invalid Bot Token. Please check and try again."
+    exit 1
+fi
 
-echo "[2/6] Enable RPM Fusion & Install FFmpeg..."
-dnf install -y --nogpgcheck https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-9.noarch.rpm
-dnf install -y ffmpeg ffmpeg-devel
+# 3. System Updates & Dependencies
+echo "📦 Installing Dependencies..."
+if command -v dnf >/dev/null; then
+    dnf install -y epel-release
+    dnf install -y git python3 python3-pip ffmpeg
+elif command -v apt >/dev/null; then
+    apt update
+    apt install -y git python3 python3-pip ffmpeg
+else
+    echo "❌ Unsupported OS. Use CentOS Stream 9 or Ubuntu."
+    exit 1
+fi
 
-echo "[3/6] Installing Python Libraries..."
+# 4. Setup Python Environment
+echo "🐍 Installing Python Libs..."
 pip3 install -r requirements.txt
 
-echo "[4/6] Setting up Directories & Permissions..."
-mkdir -p /opt/livexa
-cp -r . /opt/livexa/
-chmod +x /opt/livexa/engine/*.sh
-chmod +x /opt/livexa/backup/*.sh
+# 5. Bootstrap Security (Encrypt Token)
+echo "🔐 Encrypting Credentials..."
+python3 core/bootstrap.py "$BOT_TOKEN"
 
-# Create user if not exists
-if ! id "livexa" &>/dev/null; then
-    useradd -r -s /bin/false livexa
-fi
-chown -R livexa:livexa /opt/livexa
-
-echo "[5/6] Generating Secure Keys..."
-# Generate a key if not exists
-if [ ! -f /opt/livexa/config/livexa.env ]; then
-    cp /opt/livexa/config/livexa.env.example /opt/livexa/config/livexa.env
-    KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-    sed -i "s/LIVEXA_SECRET_KEY=/LIVEXA_SECRET_KEY=$KEY/" /opt/livexa/config/livexa.env
-    echo "Generated new AES-256 Key."
-fi
-
-echo "[6/6] Installing Systemd Services..."
-cp systemd/*.service /etc/systemd/system/
+# 6. Service Setup
+echo "⚙️ Configuring Systemd..."
+cp systemd/livexa-bot.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable livexa-bot
+systemctl start livexa-bot
 
-echo "==========================================="
-echo "   INSTALLATION COMPLETE"
-echo "==========================================="
-echo "1. Edit /opt/livexa/config/livexa.env with your Bot Token and Admin IDs."
-echo "2. Upload your media to /opt/livexa/playlists/"
-echo "3. Start the bot: systemctl start livexa-bot"
+echo "--------------------------------"
+echo "✅ INSTALLATION COMPLETE"
+echo "--------------------------------"
+echo "👉 Now open Telegram and find your bot."
+echo "👉 Use the /start command to claim your system."
+echo "--------------------------------"
+exit 0

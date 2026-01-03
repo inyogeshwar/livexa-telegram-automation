@@ -461,51 +461,135 @@ async def delete_pl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     playlist_manager.delete_playlist(update.effective_chat.id, pl)
     await menu_playlists(update, context)
 
-# --- APP SETUP ---
+# --- SETUP WIZARD (First Run) ---
+
+async def setup_wizard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles the First Run Setup flow.
+    Only active when no admins exist.
+    """
+    if not update.message or not update.message.text: return
+    
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    state = state_manager.get_state(chat_id)
+    step = state.get('setup_step', 'INIT')
+    
+    # 1. INIT -> CONFIRM
+    if step == 'INIT':
+        await update.message.reply_text(
+            f"👋 <b>Welcome to Livexa V3.1</b>\n\n"
+            f"This system is unclaimed.\n"
+            f"Do you want to claim it as the <b>Super Admin</b>?\n\n"
+            f"Reply with <b>YES</b> to confirm.",
+            parse_mode=ParseMode.HTML
+        )
+        state_manager.save_state(chat_id, {'setup_step': 'CONFIRM_CLAIM'})
+        return
+
+    # 2. CONFIRM -> CLAIMED
+    if step == 'CONFIRM_CLAIM':
+        if text.upper() == 'YES':
+            # ACTION: Claim
+            admin_manager.add_admin(user_id)
+            state_manager.clear_state(chat_id) # Clear setup state
+            
+            await update.message.reply_text(
+                "✅ <b>System Claimed Successfully!</b>\n"
+                "You are now the Super Admin.\nLoading Control Panel...",
+                parse_mode=ParseMode.HTML
+            )
+            await asyncio.sleep(2)
+            await start(update, context) # Launch Dashboard
+        else:
+             await update.message.reply_text("Setup Cancelled. Reply YES to claim.")
+
+# --- MAIN ---
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    """Start the bot."""
+    # 1. Load Token (Bootstrap)
+    token = security.decrypt(os.getenv('LIVEXA_BOT_TOKEN_ENC'))
+    if not token:
+        print("❌ CRITICAL: No Bot Token found. Run install.sh --token <TOKEN>")
+        sys.exit(1)
 
-    # Commands
-    app.add_handler(CommandHandler("start", start))
+    app = Application.builder().token(token).build()
+
+    # 2. Check Admin State (First Run?)
+    # We check dynamically per update, but we can register a global Fallback
+    # Ideally, we separate handlers based on state, but 'restricted' decorator handles auth.
+    # We need a 'setup_filter'
+
+    # 3. Register Handlers
     
-    # Text Inputs (Unified)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
+    # Global Setup Handler (Higher Priority)
+    # Checks if admins specific to this system exist? 
+    # Actually, if TOTAL admins == 0, system is in Setup Mode for EVERYONE
+    
+    async def global_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Router to decide if we are in Setup or Normal mode
+        if not admin_manager.get_admins():
+            await setup_wizard_handler(update, context)
+            return
+
+        # Normal Mode - Process other handlers
+        # Since we use app.add_handler, this router manual approach is tricky with PTB.
+        # correct approach: Add Setup Handler with a Filter that checks admin count
+    
+    class SetupFilter(filters.BaseFilter):
+        def filter(self, message):
+            return len(admin_manager.get_admins()) == 0
+
+    setup_filter = SetupFilter()
+
+    # SETUP HANDLER (Exclusive Group 0)
+    app.add_handler(MessageHandler(setup_filter & filters.TEXT, setup_wizard_handler), group=0)
+
+    # NORMAL HANDLERS (Group 1 - Only run if SetupFilter failed / Admins Exist)
+    # Note: PTB doesn't stop propagation automatically unless we use StopPropagation
+    # Simpler: Use common handlers, let 'restricted' check verify auth.
+    # But 'restricted' blocks non-admins.
+    # So once claimed, the new admin IS in the list, so Restricted passes.
+    
+    # 4. Normal Handlers
+    app.add_handler(CommandHandler("start", start), group=1)
+    
+    # Text Inputs
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~setup_filter, handle_text_inputs), group=1)
     
     # Media Inputs
-    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.PHOTO, handle_media))
+    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.PHOTO, handle_media), group=1)
 
     # Menus
-    app.add_handler(CallbackQueryHandler(menu_start, pattern='^menu_start$'))
-    app.add_handler(CallbackQueryHandler(menu_playlists, pattern='^menu_playlists$'))
-    app.add_handler(CallbackQueryHandler(menu_keys, pattern='^menu_keys$'))
-    app.add_handler(CallbackQueryHandler(menu_admins, pattern='^menu_admins$'))
-    app.add_handler(CallbackQueryHandler(menu_bots, pattern='^menu_bots$'))
-    app.add_handler(CallbackQueryHandler(main_menu, pattern='^main_menu$'))
+    app.add_handler(CallbackQueryHandler(menu_start, pattern='^menu_start$'), group=1)
+    app.add_handler(CallbackQueryHandler(menu_playlists, pattern='^menu_playlists$'), group=1)
+    app.add_handler(CallbackQueryHandler(menu_keys, pattern='^menu_keys$'), group=1)
+    app.add_handler(CallbackQueryHandler(menu_admins, pattern='^menu_admins$'), group=1)
+    app.add_handler(CallbackQueryHandler(menu_bots, pattern='^menu_bots$'), group=1)
+    app.add_handler(CallbackQueryHandler(main_menu, pattern='^main_menu$'), group=1)
     
     # Actions
-    app.add_handler(CallbackQueryHandler(action_stop, pattern='^action_stop$'))
-    app.add_handler(CallbackQueryHandler(action_refresh, pattern='^action_refresh$'))
+    app.add_handler(CallbackQueryHandler(action_stop, pattern='^action_stop$'), group=1)
+    app.add_handler(CallbackQueryHandler(action_refresh, pattern='^action_refresh$'), group=1)
     
     # Inputs & Selections
-    app.add_handler(CallbackQueryHandler(input_create_pl, pattern='^input_create_pl$'))
-    app.add_handler(CallbackQueryHandler(input_add_key, pattern='^input_add_key$'))
-    app.add_handler(CallbackQueryHandler(input_add_admin, pattern='^input_add_admin$'))
-    app.add_handler(CallbackQueryHandler(input_del_admin, pattern='^input_del_admin$'))
-    app.add_handler(CallbackQueryHandler(input_add_bot, pattern='^input_add_bot$'))
+    app.add_handler(CallbackQueryHandler(input_create_pl, pattern='^input_create_pl$'), group=1)
+    app.add_handler(CallbackQueryHandler(input_add_key, pattern='^input_add_key$'), group=1)
+    app.add_handler(CallbackQueryHandler(input_add_admin, pattern='^input_add_admin$'), group=1)
+    app.add_handler(CallbackQueryHandler(input_del_admin, pattern='^input_del_admin$'), group=1)
+    app.add_handler(CallbackQueryHandler(input_add_bot, pattern='^input_add_bot$'), group=1)
     
     # Dynamic
-    app.add_handler(CallbackQueryHandler(view_pl, pattern='^view_pl_'))
-    app.add_handler(CallbackQueryHandler(start_sel_pl, pattern='^start_sel_pl_'))
-    app.add_handler(CallbackQueryHandler(start_sel_key, pattern='^start_sel_key_'))
-    app.add_handler(CallbackQueryHandler(delete_pl_callback, pattern='^del_pl_'))
+    app.add_handler(CallbackQueryHandler(view_pl, pattern='^view_pl_'), group=1)
+    app.add_handler(CallbackQueryHandler(start_sel_pl, pattern='^start_sel_pl_'), group=1)
+    app.add_handler(CallbackQueryHandler(start_sel_key, pattern='^start_sel_key_'), group=1)
+    app.add_handler(CallbackQueryHandler(delete_pl_callback, pattern='^del_pl_'), group=1)
+    app.add_handler(CallbackQueryHandler(manage_playlist_callback, pattern='^manage_pl_'), group=1)
+    app.add_handler(CallbackQueryHandler(delete_playlist_callback, pattern='^del_pl_confirm_'), group=1)
+    app.add_handler(CallbackQueryHandler(del_files_menu_callback, pattern='^del_files_menu_'), group=1)
+    app.add_handler(CallbackQueryHandler(del_file_confirm_callback, pattern='^del_file_confirm_'), group=1)
 
-    # Auto-Resume Logic on Startup is tricky with python-telegram-bot webhooks/polling
-    # Ideally, we loop through known chats in state_manager and send a "Bot Restarted" refresh?
-    # Doing that in main() is blocking. We can use job_queue.
-    
-    print("Bot Started...")
+    print("Bot Started (V3.1 Zero-CLI)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
