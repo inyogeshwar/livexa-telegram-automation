@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# INSTALLER FOR PLAYLIST BOT (User Code V4)
+# INSTALLER FOR PLAYLIST BOT (Premium V2)
 # Usage: sudo ./install.sh <BOT_TOKEN>
 
 if [ -z "$1" ]; then
@@ -10,13 +10,15 @@ if [ -z "$1" ]; then
 fi
 TOKEN="$1"
 
-echo "🟢 Installing Playlist Bot V4..."
+echo "🟢 Installing Playlist Bot (Premium V2)..."
 
-# 1. Clean
+# 1. Stop Service (if running)
 systemctl stop livexa-bot >/dev/null 2>&1 || true
-rm -rf /opt/livexa
 
-# 2. Deps
+# 2. Preparation (Preserve Storage)
+mkdir -p /opt/livexa/storage
+
+# 3. Deps
 echo "📦 Installing Dependencies..."
 if command -v dnf >/dev/null; then
     dnf install -y epel-release &>/dev/null
@@ -25,23 +27,23 @@ if command -v dnf >/dev/null; then
 else
     apt update && apt install -y python3 python3-pip ffmpeg git
 fi
+pip3 install --upgrade pip
 pip3 install -r requirements.txt
 
-# 3. Setup Files
-mkdir -p /opt/livexa/storage
+# 4. Copy Files (Overwrite code, keep storage)
 cp bot.py /opt/livexa/
 cp requirements.txt /opt/livexa/
 
-# 3.1 Inject Token
+# 5. Inject Token
 if [ -n "$TOKEN" ]; then
-    echo "🔑 Injecting Token in Code..."
+    echo "🔑 Injecting Token..."
     sed -i "s|BOT_TOKEN = \".*\"|BOT_TOKEN = \"$TOKEN\"|" /opt/livexa/bot.py
 fi
 
-# 4. Service
+# 6. Service Definition
 cat <<EOF > /etc/systemd/system/livexa-bot.service
 [Unit]
-Description=Livexa Playlist Bot
+Description=Livexa Playlist Bot (Premium)
 After=network.target
 
 [Service]
@@ -56,16 +58,16 @@ Environment="BOT_TOKEN=$TOKEN"
 WantedBy=multi-user.target
 EOF
 
-# 5. Start
+# 7. Start & Enable
 systemctl daemon-reload
 systemctl enable livexa-bot --now
 
-# 6. Verify
+# 8. Verify
 sleep 3
 if systemctl is-active --quiet livexa-bot; then
-    echo "✅ SUCCESS! Bot is Live."
+    echo "✅ SUCCESS! Premium Bot is Live."
     echo "👉 Open Telegram -> Send /start"
-    echo "👉 Send your Stream Key directly to bot."
+    echo "👉 Note: Your previous configuration (keys/files) is SAFE."
 else
     echo "❌ FAILED. Logs:"
     journalctl -u livexa-bot -n 20 --no-pager
