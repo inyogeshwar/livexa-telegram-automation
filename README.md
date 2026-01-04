@@ -1,27 +1,24 @@
-# README: LivexaBot PRO 🚀
+# README: LivexaBot Premium V2.0 🚀
 
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ## ━━━━━━━━━━━ **L I V E X A B O T** ━━━━━━━━━━━
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-### **Personal Multi-Live YouTube Streaming Automation System**
-
-**LivexaBot** is a high-reliability, Telegram-controlled automation system designed for personal creators who require multiple concurrent YouTube Live streams from a single powerful server.
+### **Simplified Single-Live YouTube Streaming Automation**
 
 ---
 
 ## 🌟 Key Features
-- **Multi-Live Streaming**: Run multiple independent live streams simultaneously.
+- **One-Click Streaming**: No more session IDs. Manage one high-quality stream with ease.
 - **Interactive UI**:
     - 🔘 **Inline Menu**: Action buttons directly in messages.
-    - ⌨️ **Reply Dashboard**: Persistent bottom control buttons.
-- **Streaming Modes**:
+    - ⌨️ **Smart Dashboard**: Click "Set Key" and just send the key!
+- **Multi-Mode Support**:
     - 📹 **Video Mode**: Direct MP4 file looping.
     - 📻 **Radio Mode**: Static Image + MP3 looping.
-    - 🔀 **Overlay Mode**: Video background with custom MP3 audio.
-- **Auto-Quality Engine**: Supports 1080p, 720p, and 360p resolution.
-- **Zero UI / Zero Code**: Control everything via Telegram commands.
-- **Persistence**: Streams stay running across bot/server restarts.
+    - 🔀 **Overlay Mode**: Video background with custom MP3.
+- **HD Quality**: Optimized for 1080p, 720p, and 360p.
+- **Persistence**: Stream stays running across bot/server restarts.
 
 ---
 
@@ -39,20 +36,19 @@ sudo ./install.sh "YOUR_BOT_TOKEN"
 
 | Command | Action |
 | --- | --- |
-| `/newlive` | Create a new independent live session |
-| `/setkey <id> <key>` | Assign YouTube stream key to a session |
-| `/mode <id> video\|radio\|overlay` | Set streaming mode for the session |
-| `/quality <id> <res>` | Set resolution (1080p, 720p, 360p) |
-| `/start_live <id>` | Start the specific encoder instance |
-| `/stop <id>` | Stop the specific live session |
-| `/livelist` | View all sessions and their status |
-| `/status <id>` | Detailed resource/state for a session |
+| `/start` | Open the control panel & dashboard |
+| `/setkey <key>` | Set YouTube stream key (or use button) |
+| `/source <url>` | Download from GDrive (or use button) |
+| `/mode <v|r|o>` | Set mode (video, radio, overlay) |
+| `/quality <q>` | Set resolution (1080p, 720p, 360p) |
+| `/start_live` | **GO LIVE** |
+| `/stop` | STOP LIVE |
+| `/status` | View resource & stream status |
 
 ---
 
 ## 🔐 Security
 - **Admin Lock**: The first user to message the bot becomes the exclusive Administrator.
-- **Resource Limits**: Automatically prevents server overload.
 
 ---
 
