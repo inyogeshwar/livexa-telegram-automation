@@ -1,7 +1,7 @@
-# ===============================
-# TELEGRAM IMAGE → YOUTUBE LIVE BOT (PREMIUM)
-# HD 720p • Persistent Sessions • Robust
-# ===============================
+# ========================================================================
+# LIVEXABOT: PERSONAL MULTI-LIVE YOUTUBE STREAMING AUTOMATION
+# Version: 1.0 (PRO) • Multi-Session • Resource-Aware • Stable
+# ========================================================================
 
 import os
 import signal
@@ -9,8 +9,10 @@ import subprocess
 import json
 import asyncio
 import logging
+import time
 from pathlib import Path
 
+import psutil
 import gdown
 from telegram import Update
 from telegram.ext import (
@@ -21,291 +23,333 @@ from telegram.ext import (
     filters,
 )
 
-# -------------------------------
-# CONFIG
-# -------------------------------
+# ------------------------------------------------------------------------
+# CONFIG & DIRECTORIES
+# ------------------------------------------------------------------------
 BOT_TOKEN = "7811290443:AAE4F53WPDCHcIZJodLTQooRXQx10TMtR28" 
-PORT = 8080
-
 BASE = Path("/opt/livexa")
 STORAGE = BASE / "storage"
-STORAGE.mkdir(exist_ok=True, parents=True) # Ensure storage exists
+LIVES_DIR = STORAGE / "lives"
+LIVES_DIR.mkdir(exist_ok=True, parents=True)
 
-PID_FILE = STORAGE / "pids.json"
+SESSIONS_FILE = STORAGE / "sessions.json"
 
 # Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("LivexaBot")
 
-# -------------------------------
-# PERSISTENCE HELPERS
-# -------------------------------
-def load_pids() -> dict:
-    """Load active process IDs from disk to recover sessions after restart."""
-    if not PID_FILE.exists():
+# Whitelist (Admin ID) - Can be injected by installer or set on first start
+ADMIN_ID = None 
+
+# ------------------------------------------------------------------------
+# SESSION & SESSION TRACKING
+# ------------------------------------------------------------------------
+# Memory state: { "live_1": { "pid": 123, "quality": "720p", "key": "...", "chat_id": ... } }
+SESSIONS = {}
+
+def load_sessions():
+    """Load session state from disk and verify PIDs."""
+    global SESSIONS
+    if not SESSIONS_FILE.exists():
         return {}
     try:
-        data = json.loads(PID_FILE.read_text())
-        # Verify if processes are actually alive
+        data = json.loads(SESSIONS_FILE.read_text())
         validated = {}
-        for cid, pid in data.items():
-            try:
-                os.kill(pid, 0) # Check if process exists
-                validated[cid] = pid
-            except OSError:
-                logger.info(f"Process {pid} for chat {cid} is dead, removing.")
+        for lid, info in data.items():
+            pid = info.get("pid")
+            if pid:
+                try:
+                    p = psutil.Process(pid)
+                    if p.is_running() and "ffmpeg" in p.name().lower():
+                        validated[lid] = info
+                    else:
+                        logger.info(f"Removing dead session {lid} (PID {pid} not ffmpeg)")
+                except:
+                    logger.info(f"Removing dead session {lid} (PID {pid} not found)")
+            else:
+                validated[lid] = info # Key/Config but not running
         return validated
     except Exception as e:
-        logger.error(f"Failed to load PIDs: {e}")
+        logger.error(f"Failed to load sessions: {e}")
         return {}
 
-def save_pids(active: dict):
-    """Save active process IDs to disk."""
+def save_sessions():
+    """Commit global SESSIONS state to disk."""
     try:
-        PID_FILE.write_text(json.dumps(active))
+        SESSIONS_FILE.write_text(json.dumps(SESSIONS, indent=2))
     except Exception as e:
-        logger.error(f"Failed to save PIDs: {e}")
+        logger.error(f"Failed to save sessions: {e}")
 
-# Global Active Processes (InMemory + Sync with Disk)
-ACTIVE = load_pids()
+# Initial Load
+SESSIONS = load_sessions()
 
-def update_active(cid, pid=None):
-    """Update global state and persist."""
-    if pid:
-        ACTIVE[str(cid)] = pid
-    else:
-        ACTIVE.pop(str(cid), None)
-    save_pids(ACTIVE)
-
-# -------------------------------
-# CHAT HELPERS
-# -------------------------------
-def chat_dir(cid) -> Path:
-    d = STORAGE / str(cid)
+# ------------------------------------------------------------------------
+# UTILITIES
+# ------------------------------------------------------------------------
+def get_live_dir(lid: str) -> Path:
+    d = LIVES_DIR / lid
     d.mkdir(exist_ok=True)
     return d
 
-def cfg_path(cid) -> Path:
-    return chat_dir(cid) / "config.json"
+def get_config(lid: str) -> dict:
+    return SESSIONS.get(lid, {})
 
-def load_cfg(cid) -> dict:
-    p = cfg_path(cid)
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except:
-            return {}
-    return {}
+def update_config(lid: str, **kwargs):
+    if lid not in SESSIONS:
+        SESSIONS[lid] = {"quality": "720p", "source": "telegram"}
+    SESSIONS[lid].update(kwargs)
+    save_sessions()
 
-def save_cfg(cid, data: dict):
-    cfg_path(cid).write_text(json.dumps(data))
+async def admin_only(update: Update):
+    global ADMIN_ID
+    uid = update.effective_user.id
+    if ADMIN_ID is None: # First user becomes admin
+        ADMIN_ID = uid
+        return True
+    return uid == ADMIN_ID
 
-# -------------------------------
+# ------------------------------------------------------------------------
+# RESOURCE MONITOR & AUTO-QUALITY
+# ------------------------------------------------------------------------
+async def resource_monitor():
+    """Background loop to check server pressure and log status."""
+    while True:
+        cpu = psutil.cpu_percent(interval=1)
+        ram = psutil.virtual_memory().percent
+        active_count = sum(1 for s in SESSIONS.values() if s.get("pid"))
+        
+        if cpu > 85 or ram > 90:
+            logger.warning(f"CRITICAL RESOURCE PRESSURE: CPU {cpu}% | RAM {ram}%")
+            # Logic for Auto-Quality degradation could go here
+            # e.g., finding the highest quality stream and asking it to restart at lower q
+            
+        await asyncio.sleep(60)
+
+# ------------------------------------------------------------------------
 # COMMANDS
-# -------------------------------
+# ------------------------------------------------------------------------
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
     await update.message.reply_text(
-        "🚀 **HD Link Stream Bot (Premium)**\n\n"
-        "1️⃣ **/set_stream** `<key>`\n"
-        "2️⃣ **/set_audio** `<GDrive_Link>`\n"
-        "3️⃣ Send an **Image**\n"
-        "4️⃣ **/start_stream**\n"
-        "5️⃣ **/stop_stream**\n"
-        "6️⃣ **/status**\n\n"
-        "✨ _Supports 720p HD, Auto-Reconnect, Persistent Sessions_"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🎬 **LIVEXABOT MASTER**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🆕 `/newlive` - Create a new session\n"
+        "🔑 `/setkey <id> <key>` - Set stream key\n"
+        "📂 `/source <id> telegram|gdrive` - Set source type\n"
+        "📊 `/quality <id> auto|360p|720p|1080p` - Set quality\n"
+        "🚀 `/start_live <id>` - Start streaming\n"
+        "⏹ `/stop <id>` - Stop streaming\n"
+        "🆔 `/status <id>` - Session status\n"
+        "📜 `/livelist` - List all sessions\n"
+        "❌ `/kill <id>` - Delete session data\n"
+        "━━━━━━━━━━━━━━━━━━━━━━"
     , parse_mode="Markdown")
 
-async def set_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        return await update.message.reply_text("❌ Usage: `/set_stream <key>`", parse_mode="Markdown")
+async def new_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    lid = f"live-{int(time.time() % 10000):04d}"
+    update_config(lid, chat_id=update.effective_chat.id)
+    await update.message.reply_text(f"✅ **Created Session:** `{lid}`", parse_mode="Markdown")
 
-    key = ctx.args[0].strip()
-    save_cfg(update.effective_chat.id, {"key": key})
-    await update.message.reply_text("✅ **Stream Key Saved!**", parse_mode="Markdown")
-
-async def set_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        return await update.message.reply_text("❌ Usage: `/set_audio <GDrive_Link>`", parse_mode="Markdown")
-
-    cid = update.effective_chat.id
-    d = chat_dir(cid)
-    out = d / "audio.mp3"
+async def livelist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if not SESSIONS:
+        return await update.message.reply_text("📭 No active sessions.")
     
-    msg = await update.message.reply_text("⏳ **Downloading from Google Drive...**", parse_mode="Markdown")
+    text = "📜 **Active Sessions:**\n\n"
+    for lid, info in SESSIONS.items():
+        status = "🟢 ONLINE" if info.get("pid") else "💤 IDLE"
+        text += f"🔹 `{lid}`: {status} | Q: `{info.get('quality')}`\n"
+    await update.message.reply_text(text, parse_mode="Markdown")
 
-    try:
-        if out.exists(): out.unlink()
-        
-        # Download in thread to not block bot
-        await asyncio.to_thread(
-            gdown.download,
-            ctx.args[0],
-            str(out),
-            quiet=False,
-            fuzzy=True
-        )
+async def setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if len(ctx.args) < 2:
+        return await update.message.reply_text("❌ Usage: `/setkey <id> <stream_key>`", parse_mode="Markdown")
+    lid, key = ctx.args[0], ctx.args[1]
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
+    update_config(lid, key=key)
+    await update.message.reply_text(f"✅ Key updated for `{lid}`", parse_mode="Markdown")
 
-        if out.exists() and out.stat().st_size > 50 * 1024: # Min 50KB
-            await msg.edit_text("✅ **Audio Downloaded Successfully!** (Ready to stream)", parse_mode="Markdown")
-        else:
-            await msg.edit_text("❌ **Download Failed.** File too small or inaccessible.", parse_mode="Markdown")
-    except Exception as e:
-        await msg.edit_text(f"❌ **Error:** `{str(e)}`", parse_mode="Markdown")
+async def quality(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if len(ctx.args) < 2:
+        return await update.message.reply_text("❌ Usage: `/quality <id> auto|360p|720p|1080p`", parse_mode="Markdown")
+    lid, q = ctx.args[0], ctx.args[1]
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
+    if q not in ["auto", "360p", "720p", "1080p"]:
+        return await update.message.reply_text("❌ Invalid quality level.")
+    update_config(lid, quality=q)
+    await update.message.reply_text(f"✅ Quality set to `{q}` for `{lid}`", parse_mode="Markdown")
 
-async def upload_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    cid = msg.chat.id
-    d = chat_dir(cid)
+async def source_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if len(ctx.args) < 2:
+        return await update.message.reply_text("❌ Usage: `/source <id> telegram|gdrive`", parse_mode="Markdown")
+    lid, src = ctx.args[0], ctx.args[1]
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
+    update_config(lid, source=src)
+    await update.message.reply_text(f"✅ Source set to `{src}` for `{lid}`", parse_mode="Markdown")
 
-    # IMAGE HANDLER
-    if msg.photo:
-        f = await msg.photo[-1].get_file()
-        await f.download_to_drive(d / "image.jpg")
-        return await msg.reply_text("🖼️ **Background Image Set!**", parse_mode="Markdown")
+async def start_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if not ctx.args: return await update.message.reply_text("❌ Usage: `/start_live <id>`")
+    lid = ctx.args[0]
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
+    
+    info = SESSIONS[lid]
+    if info.get("pid"):
+        return await update.message.reply_text("⚠️ Already running.")
 
-    # AUDIO HANDLER (Telegram Upload)
-    audio = msg.audio or msg.document
-    if audio:
-        fname = (audio.file_name or "").lower()
-        if fname.endswith('.mp3') or audio.mime_type == 'audio/mpeg':
-            f = await audio.get_file()
-            await f.download_to_drive(d / "audio.mp3")
-            await msg.reply_text("🎵 **MP3 File Uploaded!**", parse_mode="Markdown")
-        else:
-            if msg.document: # Only warn if it was a document upload attempt
-                return # Silent ignore random files
-            await msg.reply_text("⚠️ Please upload an **MP3** file.")
+    if not info.get("key"):
+        return await update.message.reply_text("❌ Missing Stream Key. Use /setkey")
 
-async def start_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    cid = update.effective_chat.id
-    str_cid = str(cid)
+    ldir = get_live_dir(lid)
+    img, aud = ldir / "image.jpg", ldir / "audio.mp3"
+    
+    if not img.exists() or not aud.exists():
+        return await update.message.reply_text(f"❌ Missing media in `{lid}`. Upload image/audio first.")
 
-    # Check if already running
-    if str_cid in ACTIVE:
-        try:
-            os.kill(ACTIVE[str_cid], 0)
-            return await update.message.reply_text("⚠️ **Stream is already running!**", parse_mode="Markdown")
-        except OSError:
-            update_active(cid, None) # Cleanup dead PID
+    # Quality Ladder
+    q_map = {
+        "360p":  ("640:360", "800k", "128k"),
+        "720p":  ("1280:720", "2500k", "192k"),
+        "1080p": ("1920:1080", "4500k", "256k"),
+        "auto":  ("1280:720", "2500k", "192k") # Default to 720p
+    }
+    res, b_v, b_a = q_map.get(info.get("quality"), q_map["720p"])
 
-    # valid configuration
-    cfg = load_cfg(cid)
-    if "key" not in cfg:
-        return await update.message.reply_text("❌ **No Stream Key!** use /set_stream", parse_mode="Markdown")
+    rtmp = f"rtmp://a.rtmp.youtube.com/live2/{info['key']}"
 
-    d = chat_dir(cid)
-    image = d / "image.jpg"
-    audio = d / "audio.mp3"
-
-    if not image.exists():
-        return await update.message.reply_text("❌ **Missing Image!** Send a photo first.", parse_mode="Markdown")
-    if not audio.exists():
-        return await update.message.reply_text("❌ **Missing Audio!** Use /set_audio or send MP3.", parse_mode="Markdown")
-
-    # Construct RTMP URL
-    rtmp = f"rtmp://a.rtmp.youtube.com/live2/{cfg['key']}"
-
-    # FFMPEG COMMAND (PREMIUM QUALITY)
-    # 720p @ 2500k video, 192k audio
     cmd = [
-        "ffmpeg",
-        "-re",
-        "-loop", "1", "-i", str(image),
-        "-stream_loop", "-1", "-i", str(audio),
-        "-vf", "scale=1280:720,format=yuv420p", # Fixed 720p scaling
-        "-c:v", "libx264",
-        "-preset", "veryfast", # Better quality than ultrafast
-        "-b:v", "2500k", "-maxrate", "2500k", "-bufsize", "5000k",
-        "-g", "60", # Keyframe every 2s for 30fps
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-ar", "44100",
-        "-f", "flv",
-        rtmp
+        "ffmpeg", "-re", "-loop", "1", "-i", str(img),
+        "-stream_loop", "-1", "-i", str(aud),
+        "-vf", f"scale={res},format=yuv420p",
+        "-c:v", "libx264", "-preset", "veryfast", "-b:v", b_v, "-maxrate", b_v, "-bufsize", "5000k",
+        "-g", "60", "-c:a", "aac", "-b:a", b_a, "-ar", "44100", "-f", "flv", rtmp
     ]
 
     try:
-        # Start Process
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            start_new_session=True
-        )
-        
-        # Immediate crash check
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
         await asyncio.sleep(2)
         if proc.poll() is not None:
-             _, err = proc.communicate()
-             error_msg = err.decode('utf-8')[-300:] if err else "Unknown Error"
-             return await update.message.reply_text(f"❌ **Stream Failed to Start:**\n`{error_msg}`", parse_mode="Markdown")
+            _, err = proc.communicate()
+            return await update.message.reply_text(f"❌ Start Failed for `{lid}`:\n`{err.decode()[-200:]}`")
 
-        # Success - Identify PID and Save
-        update_active(cid, proc.pid)
-        await update.message.reply_text(f"✅ **Stream Started!** (PID: {proc.pid})\n📊 Quality: 720p HD @ 2.5Mbps", parse_mode="Markdown")
-
+        update_config(lid, pid=proc.pid)
+        await update.message.reply_text(f"🚀 **Started `{lid}`**\n📊 Quality: `{res}` @ `{b_v}`", parse_mode="Markdown")
     except Exception as e:
         await update.message.reply_text(f"❌ System Error: {e}")
 
-async def stop_stream(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    cid = update.effective_chat.id
-    str_cid = str(cid)
+async def stop_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if not ctx.args: return await update.message.reply_text("❌ Usage: `/stop <id>`")
+    lid = ctx.args[0]
+    pid = SESSIONS.get(lid, {}).get("pid")
     
-    pid = ACTIVE.get(str_cid)
+    if not pid: return await update.message.reply_text("⚠️ Not running.")
     
-    if not pid:
-        return await update.message.reply_text("⚠️ No active stream found.", parse_mode="Markdown")
-
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM) # Kill process group
-        await update.message.reply_text("⏹ **Stream Stopped Successfully.**")
-    except ProcessLookupError:
-        await update.message.reply_text("⚠️ Stream process was already dead.")
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Error stopping stream: {e}")
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        await update.message.reply_text(f"⏹ **Stopped `{lid}`**")
+    except:
+        await update.message.reply_text("⚠️ Process already dead.")
     
-    update_active(cid, None)
+    update_config(lid, pid=None)
 
-async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    cid = update.effective_chat.id
-    str_cid = str(cid)
-    pid = ACTIVE.get(str_cid)
+async def status_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if not ctx.args: return await update.message.reply_text("❌ Usage: `/status <id>`")
+    lid = ctx.args[0]
+    info = SESSIONS.get(lid)
+    if not info: return await update.message.reply_text("❌ Unknown ID.")
     
-    is_running = False
-    if pid:
+    alive = False
+    if info.get("pid"):
         try:
-            os.kill(pid, 0)
-            is_running = True
-        except OSError:
-            update_active(cid, None) # Cleanup
+            os.kill(info["pid"], 0)
+            alive = True
+        except:
+            update_config(lid, pid=None)
+            
+    await update.message.reply_text(
+        f"📊 **Status: {lid}**\n"
+        f"State: {'🟢 ONLINE' if alive else '💤 IDLE'}\n"
+        f"Quality: `{info.get('quality')}`\n"
+        f"Source: `{info.get('source')}`\n"
+        f"PID: `{info.get('pid', 'N/A')}`"
+    , parse_mode="Markdown")
 
-    if is_running:
-        await update.message.reply_text(
-            f"🟢 **ONLINE**\n"
-            f"🆔 PID: `{pid}`\n"
-            f"📊 Quality: 720p HD",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text("🔴 **OFFLINE**", parse_mode="Markdown")
+async def kill_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if not ctx.args: return await update.message.reply_text("❌ Usage: `/kill <id>`")
+    lid = ctx.args[0]
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Unknown ID.")
+    
+    # Stop if running
+    pid = SESSIONS[lid].get("pid")
+    if pid:
+        try: os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except: pass
+        
+    SESSIONS.pop(lid)
+    save_sessions()
+    await update.message.reply_text(f"🗑 **Session `{lid}` deleted.**")
 
-# -------------------------------
-# MAIN
-# -------------------------------
+async def upload_agent(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Router for all media uploads. Tries to find most recent 'active' session lid."""
+    if not await admin_only(update): return
+    msg = update.message
+    
+    # Strategy: Find any session created/modified in the last 10 mins, or ask for ID.
+    # For now, we'll look for any "last_used_lid" or just use the only one if exists.
+    if not SESSIONS:
+        return await msg.reply_text("❌ Create a session first with /newlive")
+    
+    # Defaulting to most recent lid if none specified in context
+    lid = sorted(SESSIONS.keys())[-1] 
+    ldir = get_live_dir(lid)
+    
+    if msg.photo:
+        f = await msg.photo[-1].get_file()
+        await f.download_to_drive(ldir / "image.jpg")
+        return await msg.reply_text(f"🖼 **Image set for `{lid}`**", parse_mode="Markdown")
+
+    aud = msg.audio or msg.document
+    if aud:
+        fname = (aud.file_name or "").lower()
+        if fname.endswith(".mp3"):
+            f = await aud.get_file()
+            await f.download_to_drive(ldir / "audio.mp3")
+            return await msg.reply_text(f"🎵 **Audio set for `{lid}`**", parse_mode="Markdown")
+
+# ------------------------------------------------------------------------
+# MAIN LOOP
+# ------------------------------------------------------------------------
 def main():
-    print("🤖 Bot Starting... (Premium V2)")
+    print("🤖 LivexaBot: Multi-Live V1.0 Starting...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("set_stream", set_stream))
-    app.add_handler(CommandHandler("set_audio", set_audio))
-    app.add_handler(CommandHandler("start_stream", start_stream))
-    app.add_handler(CommandHandler("stop_stream", stop_stream))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(MessageHandler(filters.ALL, upload_handler))
+    app.add_handler(CommandHandler("newlive", new_live))
+    app.add_handler(CommandHandler("livelist", livelist))
+    app.add_handler(CommandHandler("setkey", setkey))
+    app.add_handler(CommandHandler("quality", quality))
+    app.add_handler(CommandHandler("source", source_cmd))
+    app.add_handler(CommandHandler("start_live", start_live))
+    app.add_handler(CommandHandler("stop", stop_live))
+    app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("kill", kill_cmd))
+    app.add_handler(MessageHandler(filters.ALL, upload_agent))
+
+    # Background tasks
+    loop = asyncio.get_event_loop()
+    loop.create_task(resource_monitor())
 
     app.run_polling()
 
