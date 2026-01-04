@@ -1,6 +1,6 @@
 # ========================================================================
 # LIVEXABOT: PERSONAL MULTI-LIVE YOUTUBE STREAMING AUTOMATION
-# Version: 1.3 (ULTRA) • Button UI • GDrive Support • Multi-Mode
+# Version: 1.4 (ULTRA) • Inline Menu • Button UI • GDrive Support
 # ========================================================================
 
 import os
@@ -14,11 +14,12 @@ from pathlib import Path
 
 import psutil
 import gdown
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -75,10 +76,17 @@ def get_main_keyboard():
     keyboard = [
         [KeyboardButton("🆕 New Live"), KeyboardButton("📜 Live List")],
         [KeyboardButton("🚀 Start Live"), KeyboardButton("⏹ Stop Live")],
-        [KeyboardButton("📊 Status"), KeyboardButton("🎬 Change Mode")],
-        [KeyboardButton("🔑 Set Key"), KeyboardButton("⚙️ Quality")]
+        [KeyboardButton("📊 Status"), KeyboardButton("🎬 Change Mode")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_inline_menu():
+    keyboard = [
+        [InlineKeyboardButton("➕ Create Session", callback_data="new_session")],
+        [InlineKeyboardButton("📋 View All Lives", callback_data="list_sessions")],
+        [InlineKeyboardButton("🛠 Setup Guide", callback_data="help_info")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def get_live_dir(lid: str) -> Path:
     d = LIVES_DIR / lid
@@ -98,50 +106,71 @@ async def admin_only(update: Update):
     return uid == ADMIN_ID
 
 # ------------------------------------------------------------------------
-# COMMAND HANDLERS
+# COMMAND & INLINE HANDLERS
 # ------------------------------------------------------------------------
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
     await update.message.reply_text(
-        "🚀 **LIVEXABOT ULTRA V1.3**\n"
+        "🎬 **LIVEXABOT MASTER PANEL**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Welcome Admin! Control your streams using the buttons below or commands.\n\n"
-        "💡 **Tip:** Jab bhi koi file bhejo, bot automatically use latest session mein save kar lega."
-    , parse_mode="Markdown", reply_markup=get_main_keyboard())
+        "Welcome! Use the interactive menu or buttons below.",
+        parse_mode="Markdown",
+        reply_markup=get_inline_menu()
+    )
+    await update.message.reply_text("Bottom dashboard active ✅", reply_markup=get_main_keyboard())
+
+async def inline_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "new_session":
+        lid = f"live-{int(time.time() % 10000):04d}"
+        update_config(lid)
+        await query.edit_message_text(f"✅ **Session Created:** `{lid}`\nSend media files (Img/Vid/Audio) to set up.", parse_mode="Markdown", reply_markup=get_inline_menu())
+    
+    elif query.data == "list_sessions":
+        if not SESSIONS: return await query.edit_message_text("📭 No active sessions.", reply_markup=get_inline_menu())
+        res = "📜 **Current Sessions:**\n\n"
+        for lid, info in SESSIONS.items():
+            status = "🟢 ON" if info.get("pid") else "💤 OFF"
+            res += f"🔹 `{lid}`: {status} | Mode: `{info.get('mode')}`\n"
+        await query.edit_message_text(res, parse_mode="Markdown", reply_markup=get_inline_menu())
+        
+    elif query.data == "help_info":
+        await query.edit_message_text(
+            "📖 **Quick Start:**\n"
+            "1. Create session (button/command)\n"
+            "2. Send/Source media files\n"
+            "3. Set key: `/setkey <id> <key>`\n"
+            "4. Start: `/start_live <id>`",
+            parse_mode="Markdown", reply_markup=get_inline_menu()
+        )
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
     text = update.message.text
-    
     if text == "🆕 New Live": return await new_live(update, ctx)
     if text == "📜 Live List": return await livelist(update, ctx)
-    if text == "🚀 Start Live": return await update.message.reply_text("👉 Type: `/start_live <id>`", parse_mode="Markdown")
-    if text == "⏹ Stop Live": return await update.message.reply_text("👉 Type: `/stop <id>`", parse_mode="Markdown")
-    if text == "📊 Status": return await update.message.reply_text("👉 Type: `/status <id>`", parse_mode="Markdown")
-    if text == "🎬 Change Mode": return await update.message.reply_text("👉 Type: `/mode <id> video|radio|overlay`", parse_mode="Markdown")
-    if text == "🔑 Set Key": return await update.message.reply_text("👉 Type: `/setkey <id> <key>`", parse_mode="Markdown")
-    if text == "⚙️ Quality": return await update.message.reply_text("👉 Type: `/quality <id> 1080p|720p|360p`", parse_mode="Markdown")
+    if text == "🚀 Start Live": return await update.message.reply_text("👉 Type: `/start_live <id>`")
+    if text == "⏹ Stop Live": return await update.message.reply_text("👉 Type: `/stop <id>`")
+    if text == "📊 Status": return await update.message.reply_text("👉 Type: `/status <id>`")
+    if text == "🎬 Change Mode": return await update.message.reply_text("👉 Type: `/mode <id> video|radio|overlay`")
 
+# ------------------------------------------------------------------------
+# CORE LOGIC HANDLERS
+# ------------------------------------------------------------------------
 async def new_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     lid = f"live-{int(time.time() % 10000):04d}"
     update_config(lid)
-    await update.message.reply_text(f"✅ **Created Session:** `{lid}`\nAb aap ismein media bhej sakte hain.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ **Created Session:** `{lid}`", parse_mode="Markdown")
 
 async def livelist(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not SESSIONS: return await update.message.reply_text("📭 No sessions found.")
-    res = "📜 **Current Sessions:**\n\n"
+    if not SESSIONS: return await update.message.reply_text("📭 No sessions.")
+    res = "📜 **Sessions:**\n\n"
     for lid, info in SESSIONS.items():
         status = "🟢 ONLINE" if info.get("pid") else "💤 IDLE"
         res += f"🔹 `{lid}`: {status} | Mode: `{info.get('mode')}` | Q: `{info.get('quality')}`\n"
     await update.message.reply_text(res, parse_mode="Markdown")
-
-async def set_mode(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await admin_only(update): return
-    if len(ctx.args) < 2: return await update.message.reply_text("❌ Usage: `/mode <id> video|radio|overlay`")
-    lid, mode = ctx.args[0], ctx.args[1].lower()
-    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
-    update_config(lid, mode=mode)
-    await update.message.reply_text(f"✅ Mode for `{lid}` set to `{mode}`")
 
 async def setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
@@ -159,6 +188,14 @@ async def quality(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     update_config(lid, quality=q)
     await update.message.reply_text(f"✅ Quality set to `{q}` for `{lid}`")
 
+async def set_mode(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await admin_only(update): return
+    if len(ctx.args) < 2: return await update.message.reply_text("❌ `/mode <id> video|radio|overlay`")
+    lid, mode = ctx.args[0], ctx.args[1].lower()
+    if lid not in SESSIONS: return await update.message.reply_text("❌ Invalid ID.")
+    update_config(lid, mode=mode)
+    await update.message.reply_text(f"✅ Mode for `{lid}` set to `{mode}`")
+
 async def source_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
     if len(ctx.args) < 2: return await update.message.reply_text("❌ `/source <id> <url>`")
@@ -171,25 +208,21 @@ async def source_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         temp = ldir / f"dl_{int(time.time())}"
         out = await asyncio.to_thread(gdown.download, url, str(temp), quiet=True, fuzzy=True)
         if not out: return await msg.edit_text("❌ Download failed.")
-        
         o_path = Path(out)
         ext = o_path.suffix.lower()
         if ext in [".mp4", ".mkv", ".mov"]:
-            target = ldir / "video.mp4"
-            update_config(lid, mode="video")
-            txt = "📹 Video set!"
+            target, mode, txt = ldir / "video.mp4", "video", "📹 Video set!"
         elif ext in [".mp3", ".wav", ".m4a"]:
-            target = ldir / "audio.mp3"
-            txt = "🎵 Audio set!"
+            target, mode, txt = ldir / "audio.mp3", None, "🎵 Audio set!"
         elif ext in [".jpg", ".jpeg", ".png"]:
-            target = ldir / "image.jpg"
-            txt = "🖼 Image set!"
+            target, mode, txt = ldir / "image.jpg", None, "🖼 Image set!"
         else:
-            target = ldir / "video.mp4" if o_path.stat().st_size > 5*1024*1024 else ldir / "audio.mp3"
-            txt = "📦 File set (detected by size)!"
+            is_vid = o_path.stat().st_size > 5*1024*1024
+            target, mode, txt = (ldir / "video.mp4", "video", "� Video set!") if is_vid else (ldir / "audio.mp3", None, "🎵 Audio set!")
             
         if target.exists(): target.unlink()
         o_path.rename(target)
+        if mode: update_config(lid, mode=mode)
         await msg.edit_text(f"✅ {txt} for `{lid}`")
     except Exception as e: await msg.edit_text(f"❌ Error: {e}")
 
@@ -200,17 +233,17 @@ async def start_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     info = SESSIONS.get(lid)
     if not info: return await update.message.reply_text("❌ Invalid ID.")
     if info.get("pid"): return await update.message.reply_text("⚠️ Already running.")
-    if not info.get("key"): return await update.message.reply_text("❌ Key missing. Use /setkey")
+    if not info.get("key"): return await update.message.reply_text("❌ Missing Stream Key.")
 
     ldir = get_live_dir(lid)
     img, aud, vid = ldir / "image.jpg", ldir / "audio.mp3", ldir / "video.mp4"
     mode = info.get("mode")
 
-    if mode == "video" and not vid.exists(): return await update.message.reply_text(f"❌ Video missing in `{lid}`.")
+    if mode == "video" and not vid.exists(): return await update.message.reply_text("❌ Video file missing.")
     if mode == "radio" and (not img.exists() or not aud.exists()):
-        if vid.exists(): return await update.message.reply_text(f"❌ Radio requires Image+Audio, par aapke paas Video hai. Try: `/mode {lid} video` or upload image/audio.")
-        return await update.message.reply_text(f"❌ Missing Image or Audio in `{lid}`.")
-    if mode == "overlay" and (not vid.exists() or not aud.exists()): return await update.message.reply_text(f"❌ Overlay requires Video+Audio in `{lid}`.")
+        if vid.exists(): return await update.message.reply_text(f"❌ Radio requires Image+Audio. You have a Video file. Try: `/mode {lid} video`")
+        return await update.message.reply_text("❌ Missing media for Radio.")
+    if mode == "overlay" and (not vid.exists() or not aud.exists()): return await update.message.reply_text("❌ Missing media for Overlay.")
 
     q_map = {"360p": ("640:360","800k","128k"), "720p": ("1280:720","2500k","192k"), "1080p": ("1920:1080","4500k","256k")}
     res, bv, ba = q_map.get(info.get("quality"), q_map["720p"])
@@ -235,7 +268,7 @@ async def start_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def stop_live(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
-    if not ctx.args: return await update.message.reply_text("❌ Usage: `/stop <id>`")
+    if not ctx.args: return await update.message.reply_text("❌ `/stop <id>`")
     lid = ctx.args[0]
     pid = SESSIONS.get(lid, {}).get("pid")
     if not pid: return await update.message.reply_text("💤 Not running.")
@@ -263,10 +296,8 @@ async def upload_agent(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if msg.photo:
         await (await msg.photo[-1].get_file()).download_to_drive(ldir / "image.jpg")
         return await msg.reply_text(f"🖼 Image set for `{lid}`")
-
     media = msg.video or msg.audio or msg.document
-    if not media: return await button_handler(update, ctx)
-    
+    if not media: return
     fname = (media.file_name or "").lower()
     if msg.video or fname.endswith(".mp4"):
         await (await media.get_file()).download_to_drive(ldir / "video.mp4")
@@ -277,21 +308,21 @@ async def upload_agent(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return await msg.reply_text(f"🎵 Audio set for `{lid}`")
 
 def main():
-    print("🤖 LivexaBot ULTRA V1.3 Starting...")
+    print("🤖 LivexaBot ULTRA V1.4 Starting...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("newlive", new_live))
     app.add_handler(CommandHandler("livelist", livelist))
     app.add_handler(CommandHandler("setkey", setkey))
-    app.add_handler(CommandHandler("mode", set_mode))
     app.add_handler(CommandHandler("quality", quality))
+    app.add_handler(CommandHandler("mode", set_mode))
     app.add_handler(CommandHandler("source", source_cmd))
     app.add_handler(CommandHandler("start_live", start_live))
     app.add_handler(CommandHandler("stop", stop_live))
     app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CallbackQueryHandler(inline_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), button_handler))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), upload_agent))
     app.run_polling()
 
 if __name__ == "__main__": main()
-

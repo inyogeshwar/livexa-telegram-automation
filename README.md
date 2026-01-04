@@ -1,7 +1,7 @@
 # README: LivexaBot PRO 🚀
 
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## ━━━━━━━━━━ **L I V E X A B O T** ━━━━━━━━━━
+## ━━━━━━━━━━━ **L I V E X A B O T** ━━━━━━━━━━━
 ## ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ### **Personal Multi-Live YouTube Streaming Automation System**
@@ -12,6 +12,9 @@
 
 ## 🌟 Key Features
 - **Multi-Live Streaming**: Run multiple independent live streams simultaneously.
+- **Interactive UI**:
+    - 🔘 **Inline Menu**: Action buttons directly in messages.
+    - ⌨️ **Reply Dashboard**: Persistent bottom control buttons.
 - **Streaming Modes**:
     - 📹 **Video Mode**: Direct MP4 file looping.
     - 📻 **Radio Mode**: Static Image + MP3 looping.
