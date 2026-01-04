@@ -1,0 +1,28 @@
+# Livexa Panel Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  secret_key: "CHANGE_THIS_TO_RANDOM_STRING_MIN_32_CHARS"
+
+auth:
+  username: "admin"
+  password_hash: "$2b$12$0G1Xl2q4pGvC8e9f0g1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x"
+
+cloudflare:
+  enforce_https: true
+  ip_restrict: false
+
+stream_manager:
+  socket_path: "/tmp/livexa_stream.sock"
+  command_timeout: 10
+
+security:
+  session_lifetime_minutes: 480
+  max_login_attempts: 5
+  brute_force_lockout_minutes: 15
+
+ui:
+  refresh_interval: 5000
+  auto_refresh: true

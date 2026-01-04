@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Live Sessions - Livexa</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🎥 <strong>SESSIONS</strong></div>
+        <div class="nav-links">
+            <a href="/" class="nav-link">📊 Dashboard</a>
+            <a href="/live-sessions" class="nav-link active">🎥 Sessions</a>
+            <a href="/media-control" class="nav-link">🎵 Media</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div style="background:#1a1a1a; padding:1.5rem; border-radius:8px; margin-bottom:2rem; border:1px solid #333">
+            <h3>Start New Session</h3>
+            <div style="display:flex; gap:10px; margin-top:10px">
+                <input type="text" id="sid" placeholder="Session ID"
+                    style="flex:1; padding:10px; background:#222; border:1px solid #444; color:white">
+                <input type="text" id="media" placeholder="Media URL (e.g. video.mp4)"
+                    style="flex:2; padding:10px; background:#222; border:1px solid #444; color:white">
+                <button class="btn btn-primary" onclick="startSession()">🚀 GO LIVE</button>
+            </div>
+        </div>
+
+        <h2>Active Sessions</h2>
+        <div id="session-list">Loading...</div>
+    </div>
+
+    <script>
+        function startSession() {
+            const sid = document.getElementById('sid').value;
+            const media = document.getElementById('media').value;
+            fetch('/api/session/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sid, media_source: media })
+            }).then(r => r.json()).then(res => {
+                alert(res.message);
+                loadSessions();
+            });
+        }
+
+        function stopSession(sid) {
+            fetch('/api/session/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sid })
+            }).then(r => r.json()).then(res => {
+                alert(res.message);
+                loadSessions();
+            });
+        }
+
+        function loadSessions() {
+            fetch('/api/sessions').then(r => r.json()).then(res => {
+                const list = document.getElementById('session-list');
+                list.innerHTML = '';
+                const sessions = res.data.sessions || {};
+                Object.keys(sessions).forEach(id => {
+                    const s = sessions[id];
+                    const div = document.createElement('div');
+                    div.className = 'session-card' + (s.pid ? ' active' : '');
+                    div.innerHTML = `
+                        <div style="display:flex; justify-content:space-between">
+                            <strong>${id}</strong>
+                            <span style="color:${s.pid ? '#00ff00' : '#ff4444'}">${s.pid ? 'RUNNING' : 'STOPPED'}</span>
+                        </div>
+                        <div style="color:#aaa; font-size:0.9rem; margin:10px 0">${s.media || 'No media set'}</div>
+                        ${s.pid ? `<button class="btn" style="background:#ff4444" onclick="stopSession('${id}')">Stop</button>` : ''}
+                    `;
+                    list.appendChild(div);
+                });
+            });
+        }
+        setInterval(loadSessions, 5000);
+        loadSessions();
+    </script>
+</body>
+
+</html>
