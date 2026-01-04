@@ -26,7 +26,11 @@ from telegram.ext import (
 # ------------------------------------------------------------------------
 # CONFIG & DIRECTORIES
 # ------------------------------------------------------------------------
-BOT_TOKEN = "7811290443:AAE4F53WPDCHcIZJodLTQooRXQx10TMtR28" 
+# Security: Token is now loaded from environment variables
+BOT_TOKEN = os.environ.get("BOT_TOKEN") 
+if not BOT_TOKEN:
+    # Fallback for manual replacement by installer
+    BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE" 
 BASE = Path("/opt/livexa")
 STORAGE = BASE / "storage"
 LIVES_DIR = STORAGE / "lives"

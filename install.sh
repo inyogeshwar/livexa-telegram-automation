@@ -49,8 +49,8 @@ cp requirements.txt /opt/livexa/
 
 # 6. Inject Token
 if [ -n "$TOKEN" ]; then
-    echo "🔑 Injecting Token..."
-    sed -i "s|BOT_TOKEN = \".*\"|BOT_TOKEN = \"$TOKEN\"|" /opt/livexa/bot.py
+    echo "🔑 Injecting Token Safely..."
+    sed -i "s/BOT_TOKEN = \"PASTE_YOUR_TOKEN_HERE\"/BOT_TOKEN = \"$TOKEN\"/" /opt/livexa/bot.py
 fi
 
 # 7. Service Definition
