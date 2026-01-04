@@ -52,6 +52,14 @@ sudo ./install.sh "YOUR_BOT_TOKEN"
 
 ---
 
+## 🌐 Professional Web Hosting (Pterodactyl)
+You can host this bot on any Pterodactyl Panel using the custom Egg:
+1. Download [livexa-universal-egg.json](./livexa-universal-egg.json).
+2. Go to Pterodactyl Admin -> Nests -> Import Egg.
+3. Create a server using the "Livexa Universal" Egg.
+4. Set your `BOT_TOKEN` in the Startup variables.
+
+---
+
 ## 👤 Credits
 **Owner**: [Yogeshwar Kumar](https://github.com/inyogeshwar)
-**System**: LivexaBot PRO V1.0 - "Final · Locked · Complete"

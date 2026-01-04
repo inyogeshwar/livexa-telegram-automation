@@ -1,6 +1,6 @@
 # ========================================================================
-# LIVEXABOT: PREMIUM SINGLE-LIVE YOUTUBE STREAMING
-# Version: 2.0 (FINAL) • Simplified UI • Interactive Buttons • 1080p
+# LIVEXABOT: PROFESSIONAL SINGLE-LIVE (CONTAINER-READY)
+# Version: 2.3 (UNIVERSAL) • Pterodactyl Ready • Env-Driven • 1080p
 # ========================================================================
 
 import os
@@ -25,30 +25,52 @@ from telegram.ext import (
 )
 
 # ------------------------------------------------------------------------
-# CONFIG & DIRECTORIES
+# DYNAMIC PATHS (PTERODACTYL & DOCKER COMPATIBLE)
 # ------------------------------------------------------------------------
-BOT_TOKEN = os.environ.get("BOT_TOKEN") 
-if not BOT_TOKEN:
-    BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE" 
+# If running in Pterodactyl, use /home/container. Otherwise, fallback to /opt or local.
+if Path("/home/container").exists():
+    BASE = Path("/home/container")
+elif Path("/opt/livexa").exists() or os.access("/opt", os.W_OK):
+    BASE = Path("/opt/livexa")
+    BASE.mkdir(exist_ok=True, parents=True)
+else:
+    BASE = Path.cwd()
 
-BASE = Path("/opt/livexa")
 STORAGE = BASE / "storage"
+STORAGE.mkdir(exist_ok=True, parents=True)
+
 MEDIA_DIR = STORAGE / "media"
 MEDIA_DIR.mkdir(exist_ok=True, parents=True)
+
 CONFIG_FILE = STORAGE / "config.json"
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+# ------------------------------------------------------------------------
+# LOGGING (CONSOLE-FIRST FOR PANEL)
+# ------------------------------------------------------------------------
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger("LivexaBot")
 
-ADMIN_ID = None 
-USER_STATE = {} # Tracking interaction state (e.g. 'awaiting_key')
+# ------------------------------------------------------------------------
+# CONFIG & TOKEN
+# ------------------------------------------------------------------------
+# Prioritize Environment Variables (Set in Pterodactyl/Docker)
+BOT_TOKEN = os.environ.get("BOT_TOKEN") 
+if not BOT_TOKEN:
+    # Try local config if no env var
+    BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE" 
+
+ADMIN_ID = os.environ.get("ADMIN_ID") # Optional lock
+USER_STATE = {} 
 
 # ------------------------------------------------------------------------
 # DATA PERSISTENCE
 # ------------------------------------------------------------------------
 DEFAULT_CONFIG = {
-    "key": None,
-    "quality": "720p",
+    "key": os.environ.get("STREAM_KEY"),
+    "quality": os.environ.get("QUALITY", "720p"),
     "mode": "video",
     "pid": None
 }
@@ -59,7 +81,7 @@ def load_config():
         data = json.loads(CONFIG_FILE.read_text())
         pid = data.get("pid")
         if pid and not psutil.pid_exists(pid):
-            data["pid"] = None # Reset dead PID
+            data["pid"] = None
         return data
     except: return DEFAULT_CONFIG
 
@@ -92,8 +114,11 @@ def get_inline_menu():
 async def admin_only(update: Update):
     global ADMIN_ID
     uid = update.effective_user.id
-    if ADMIN_ID is None: ADMIN_ID = uid
-    return uid == ADMIN_ID
+    if ADMIN_ID is None:
+        # First person to message becomes Admin if not set in Env
+        ADMIN_ID = uid
+        logger.info(f"Admin set to: {ADMIN_ID}")
+    return str(uid) == str(ADMIN_ID)
 
 # ------------------------------------------------------------------------
 # CORE HANDLERS
@@ -101,13 +126,13 @@ async def admin_only(update: Update):
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
     await update.message.reply_text(
-        "🎬 **LIVEXABOT PREMIUM V2.0**\n"
+        "🎬 **LIVEXABOT MASTER PANEL (V2.3)**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Welcome! Your single-stream control center is ready.",
+        "Professional Control Dashboard is Online.",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
-    await update.message.reply_text("Tap below to manage your stream:", reply_markup=get_inline_menu())
+    await update.message.reply_text("Interacting via Pterodactyl environment ✅", reply_markup=get_inline_menu())
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update): return
@@ -120,7 +145,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     if text == "🔑 Set Key":
         USER_STATE[chat_id] = "awaiting_key"
-        return await update.message.reply_text("👉 **YouTube Stream Key** bhejiye ya type karein:", parse_mode="Markdown")
+        return await update.message.reply_text("👉 **YouTube Stream Key** bhejiye:", parse_mode="Markdown")
     
     if text == "🔗 Set Source":
         USER_STATE[chat_id] = "awaiting_source"
@@ -138,34 +163,29 @@ async def state_and_upload_handler(update: Update, ctx: ContextTypes.DEFAULT_TYP
     chat_id = update.effective_chat.id
     state = USER_STATE.get(chat_id)
 
-    # 1. State-Based Text Entry
     if msg.text and state:
         if state == "awaiting_key":
             CONFIG["key"] = msg.text.strip()
             save_config(CONFIG)
             USER_STATE.pop(chat_id)
-            return await msg.reply_text(f"✅ **Key Saved!**\n`{CONFIG['key']}`", parse_mode="Markdown")
-        
+            return await msg.reply_text(f"✅ **Key Saved!**", parse_mode="Markdown")
         if state == "awaiting_source":
             USER_STATE.pop(chat_id)
             ctx.args = [msg.text.strip()]
             return await source_cmd(update, ctx)
 
-    # 2. Direct File Uploads
     if msg.photo or msg.video or msg.audio or msg.document:
         await handle_file_upload(update)
         return
 
-    # Fallback to Text Button Handler
     if msg.text:
         await button_handler(update, ctx)
 
 async def handle_file_upload(update: Update):
     msg = update.message
-    # Image
     if msg.photo:
         await (await msg.photo[-1].get_file()).download_to_drive(MEDIA_DIR / "image.jpg")
-        return await msg.reply_text("🖼 **Image Updated!**", parse_mode="Markdown")
+        return await msg.reply_text("🖼 **Image Updated!**")
     
     media = msg.video or msg.audio or msg.document
     if not media: return
@@ -176,29 +196,27 @@ async def handle_file_upload(update: Update):
         if CONFIG["mode"] == "radio": 
             CONFIG["mode"] = "video"
             save_config(CONFIG)
-        return await msg.reply_text("📹 **Video Updated!** (Mode auto-set to Video)", parse_mode="Markdown")
-    
+        return await msg.reply_text("📹 **Video Updated!**")
     if msg.audio or fname.endswith(".mp3"):
         await (await media.get_file()).download_to_drive(MEDIA_DIR / "audio.mp3")
-        return await msg.reply_text("🎵 **Audio Updated!**", parse_mode="Markdown")
+        return await msg.reply_text("🎵 **Audio Updated!**")
 
 # ------------------------------------------------------------------------
 # ACTION LOGIC
 # ------------------------------------------------------------------------
 async def start_live_logic(update: Update):
+    # (Existing start logic, same but using MEDIA_DIR)
     if CONFIG.get("pid") and psutil.pid_exists(CONFIG["pid"]):
         return await update.message.reply_text("⚠️ Already running.")
     if not CONFIG.get("key"):
-        return await update.message.reply_text("❌ Key missing. Click 'Set Key' first.")
+        return await update.message.reply_text("❌ Key missing.")
 
     img, aud, vid = MEDIA_DIR / "image.jpg", MEDIA_DIR / "audio.mp3", MEDIA_DIR / "video.mp4"
     mode = CONFIG.get("mode", "video")
 
-    if mode == "video" and not vid.exists(): return await update.message.reply_text("❌ Video file (video.mp4) missing.")
-    if mode == "radio" and (not img.exists() or not aud.exists()):
-         return await update.message.reply_text("❌ Radio mode requires Image + Audio.")
-    if mode == "overlay" and (not vid.exists() or not aud.exists()):
-         return await update.message.reply_text("❌ Overlay mode requires Video + Audio.")
+    if mode == "video" and not vid.exists(): return await update.message.reply_text("❌ Missing video.mp4")
+    if mode == "radio" and (not img.exists() or not aud.exists()): return await update.message.reply_text("❌ Missing Img/Audio")
+    if mode == "overlay" and (not vid.exists() or not aud.exists()): return await update.message.reply_text("❌ Missing Vid/Audio")
 
     q_map = {"360p": ("640:360","800k","128k"), "720p": ("1280:720","2500k","192k"), "1080p": ("1920:1080","4500k","256k")}
     res, bv, ba = q_map.get(CONFIG["quality"], q_map["720p"])
@@ -208,98 +226,67 @@ async def start_live_logic(update: Update):
     if mode == "video": cmd += ["-stream_loop", "-1", "-i", str(vid)]
     elif mode == "radio": cmd += ["-loop", "1", "-i", str(img), "-stream_loop", "-1", "-i", str(aud)]
     elif mode == "overlay": cmd += ["-stream_loop", "-1", "-i", str(vid), "-stream_loop", "-1", "-i", str(aud), "-map", "0:v", "-map", "1:a", "-shortest"]
-    
     cmd += ["-vf", f"scale={res},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-b:v", bv, "-maxrate", bv, "-bufsize", "5000k", "-g", "60", "-c:a", "aac", "-b:a", ba, "-ar", "44100", "-f", "flv", rtmp]
 
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
         await asyncio.sleep(3)
         if proc.poll() is not None:
-             _, err = proc.communicate()
-             return await update.message.reply_text(f"❌ Failed: `{err.decode()[-200:]}`")
+             return await update.message.reply_text("❌ FFmpeg failed to start.")
         CONFIG["pid"] = proc.pid
         save_config(CONFIG)
         await update.message.reply_text(f"🚀 **LIVE STARTED!**\nMode: `{mode}` | Quality: `{res}`", parse_mode="Markdown")
+        logger.info("Stream started successfully.")
     except Exception as e: await update.message.reply_text(f"❌ Error: {e}")
 
 async def stop_live_logic(update: Update):
     pid = CONFIG.get("pid")
-    if not pid or not psutil.pid_exists(pid):
-        return await update.message.reply_text("💤 Not running.")
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
-        await update.message.reply_text("⏹ **Stopped!**", parse_mode="Markdown")
-    except:
-        await update.message.reply_text("⚠️ Process was already ending.")
+    if pid and psutil.pid_exists(pid):
+        try: os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except: pass
     CONFIG["pid"] = None
     save_config(CONFIG)
+    await update.message.reply_text("⏹ **Stopped!**")
 
 async def status_logic(update: Update):
-    pid = CONFIG.get("pid")
-    alive = pid and psutil.pid_exists(pid)
-    await update.message.reply_text(
-        f"📊 **SYSTEM STATUS**\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"State: {'🟢 ONLINE' if alive else '💤 IDLE'}\n"
-        f"Mode: `{CONFIG['mode']}`\n"
-        f"Quality: `{CONFIG['quality']}`\n"
-        f"Key: `{'SET ✅' if CONFIG['key'] else 'NOT SET ❌'}`",
-        parse_mode="Markdown"
-    )
+    alive = CONFIG.get("pid") and psutil.pid_exists(CONFIG["pid"])
+    await update.message.reply_text(f"📊 **STATUS**\nLive: {'🟢' if alive else '💤'}\nMode: `{CONFIG['mode']}`\nQuality: `{CONFIG['quality']}`", parse_mode="Markdown")
 
 # ------------------------------------------------------------------------
-# CMD WRAPPERS
+# COMMANDS
 # ------------------------------------------------------------------------
 async def source_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await admin_only(update): return
-    if not ctx.args: return await update.message.reply_text("❌ Usage: `/source <url>`")
+    if not ctx.args: return
     url = ctx.args[0]
-    msg = await update.message.reply_text("⏳ **Downloading...**", parse_mode="Markdown")
+    m = await update.message.reply_text("⏳ **Downloading...**", parse_mode="Markdown")
     try:
         temp = MEDIA_DIR / f"dl_{int(time.time())}"
         out = await asyncio.to_thread(gdown.download, url, str(temp), quiet=True, fuzzy=True)
-        if not out: return await msg.edit_text("❌ Download failed.")
-        o_path = Path(out)
-        ext = o_path.suffix.lower()
-        if ext in [".mp4", ".mkv", ".mov"]:
-            target, mode, txt = MEDIA_DIR / "video.mp4", "video", "📹 Video set!"
-        elif ext in [".mp3", ".wav", ".m4a"]:
-            target, mode, txt = MEDIA_DIR / "audio.mp3", None, "🎵 Audio set!"
-        elif ext in [".jpg", ".jpeg", ".png"]:
-            target, mode, txt = MEDIA_DIR / "image.jpg", None, "🖼 Image set!"
-        else:
-            is_vid = o_path.stat().st_size > 5*1024*1024
-            target, mode, txt = (MEDIA_DIR / "video.mp4", "video", "📹 Video set!") if is_vid else (MEDIA_DIR / "audio.mp3", None, "🎵 Audio set!")
-        
+        if not out: return await m.edit_text("❌ Failed.")
+        o_path, ext = Path(out), Path(out).suffix.lower()
+        if ext in [".mp4", ".mkv", ".mov"]: target, mode = MEDIA_DIR / "video.mp4", "video"
+        elif ext in [".mp3", ".wav"]: target, mode = MEDIA_DIR / "audio.mp3", None
+        elif ext in [".jpg", ".png"]: target, mode = MEDIA_DIR / "image.jpg", None
+        else: target, mode = MEDIA_DIR / "video.mp4", "video"
         if target.exists(): target.unlink()
         o_path.rename(target)
-        if mode: 
-            CONFIG["mode"] = mode
-            save_config(CONFIG)
-        await msg.edit_text(f"✅ **{txt}**", parse_mode="Markdown")
-    except Exception as e: await msg.edit_text(f"❌ Error: {e}")
+        if mode: CONFIG["mode"] = mode; save_config(CONFIG)
+        await m.edit_text("✅ **Successfully Updated Media!**", parse_mode="Markdown")
+    except Exception as e: await m.edit_text(f"❌ Error: {e}")
 
 async def mode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await admin_only(update): return
-    if not ctx.args: return await update.message.reply_text("❌ Usage: `/mode video|radio|overlay`")
+    if not ctx.args: return
     m = ctx.args[0].lower()
     if m in ["video", "radio", "overlay"]:
-        CONFIG["mode"] = m
-        save_config(CONFIG)
-        await update.message.reply_text(f"✅ Mode set to `{m}`")
-    else:
-        await update.message.reply_text("❌ Invalid mode.")
+        CONFIG["mode"] = m; save_config(CONFIG)
+        await update.message.reply_text(f"✅ Mode: `{m}`")
 
 async def quality_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await admin_only(update): return
-    if not ctx.args: return await update.message.reply_text("❌ Usage: `/quality 1080p|720p|360p`")
+    if not ctx.args: return
     q = ctx.args[0].lower()
     if q in ["1080p", "720p", "360p"]:
-        CONFIG["quality"] = q
-        save_config(CONFIG)
-        await update.message.reply_text(f"✅ Quality set to `{q}`")
-    else:
-        await update.message.reply_text("❌ Invalid quality.")
+        CONFIG["quality"] = q; save_config(CONFIG)
+        await update.message.reply_text(f"✅ Quality: `{q}`")
 
 async def inline_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -307,25 +294,20 @@ async def inline_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if query.data == "start_live": await start_live_logic(query)
     elif query.data == "stop_live": await stop_live_logic(query)
     elif query.data == "status_check": await status_logic(query)
-    elif query.data == "show_help":
-        await query.message.reply_text("📖 **Quick Start:**\n1. Set Key button\n2. Set Source button (GDrive) or upload file\n3. Start Live 🚀", parse_mode="Markdown")
+    elif query.data == "show_help": await query.message.reply_text("📖 Set Key -> Set Source -> Start Live!", parse_mode="Markdown")
 
 # ------------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------------
 def main():
-    print("🤖 LivexaBot Premium V2.0 Starting...")
+    logger.info("Bot starting in Universal Mode...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("mode", mode_cmd))
     app.add_handler(CommandHandler("quality", quality_cmd))
     app.add_handler(CommandHandler("source", source_cmd))
-    app.add_handler(CommandHandler("setkey", lambda u, c: button_handler(u, c) if u.message.text == "🔑 Set Key" else None)) # Dummy for help
-    
     app.add_handler(CallbackQueryHandler(inline_callback))
     app.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), state_and_upload_handler))
-    
     app.run_polling()
 
 if __name__ == "__main__": main()

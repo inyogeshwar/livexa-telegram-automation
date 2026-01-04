@@ -1,0 +1,64 @@
+{
+    "meta": {
+        "version": "PTDL_1",
+        "update_url": null
+    },
+    "comment": "LivexaBot Universal Egg - Professional Hosting for Telegram Bots with FFmpeg",
+    "features": null,
+    "docker_images": {
+        "Python 3.10 + FFmpeg": "ghcr.io/parkervcp/yolks:python_3.10"
+    },
+    "file_denylist": [],
+    "startup": "if [ -f requirements.txt ]; then pip install -r requirements.txt; fi; python {{START_FILE}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"Bot starting in Universal Mode...\"\r\n}",
+        "logs": "{}",
+        "stop": "^c"
+    },
+    "scripts": {
+        "installation": {
+            "container": "python:3.10-slim",
+            "entrypoint": "bash",
+            "script": "#!/bin/bash\r\napt update && apt install -y git ffmpeg\r\ncd /home/container\r\ngit clone https://github.com/inyogeshwar/livexa-telegram-automation.git .\r\npip install -r requirements.txt"
+        }
+    },
+    "variables": [
+        {
+            "name": "Bot Token",
+            "description": "Enter your Telegram Bot Token here.",
+            "env_variable": "BOT_TOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string"
+        },
+        {
+            "name": "Admin Telegram ID",
+            "description": "Optional: Enter your Telegram User ID to lock the bot to yourself.",
+            "env_variable": "ADMIN_ID",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer"
+        },
+        {
+            "name": "Main Python File",
+            "description": "The main file to start the bot.",
+            "env_variable": "START_FILE",
+            "default_value": "bot.py",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string"
+        },
+        {
+            "name": "Stream Quality",
+            "description": "Default quality (1080p, 720p, 360p).",
+            "env_variable": "QUALITY",
+            "default_value": "720p",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string"
+        }
+    ]
+}
