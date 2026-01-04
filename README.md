@@ -11,22 +11,23 @@
 ---
 
 ## 🌟 Key Features
-- **Multi-Live Streaming**: Run multiple independent live streams (different keys/media) simultaneously.
-- **Auto-Quality Engine**: Monitors system resources (CPU/RAM) and manages quality levels (1080p, 720p, 360p).
+- **Multi-Live Streaming**: Run multiple independent live streams simultaneously.
+- **Streaming Modes**:
+    - 📹 **Video Mode**: Direct MP4 file looping.
+    - 📻 **Radio Mode**: Static Image + MP3 looping.
+    - 🔀 **Overlay Mode**: Video background with custom MP3 audio.
+- **Auto-Quality Engine**: Supports 1080p, 720p, and 360p resolution.
 - **Zero UI / Zero Code**: Control everything via Telegram commands.
-- **PID Persistence**: Streams stay running and controllable even if the bot or server restarts.
-- **HD Quality**: Optimized FFmpeg profiles for 720p and 1080p high-bitrate streaming.
-- **Google Drive Integration**: Stream directly from Drive links.
+- **Persistence**: Streams stay running across bot/server restarts.
 
 ---
 
 ## 🛠 One-Click Setup (CentOS / Ubuntu)
 
-To install or update the system:
 ```bash
 wget https://raw.githubusercontent.com/inyogeshwar/livexa-telegram-automation/main/install.sh
 chmod +x install.sh
-sudo ./install.sh "YOUR_TELEGRAM_BOT_TOKEN"
+sudo ./install.sh "YOUR_BOT_TOKEN"
 ```
 
 ---
@@ -37,7 +38,8 @@ sudo ./install.sh "YOUR_TELEGRAM_BOT_TOKEN"
 | --- | --- |
 | `/newlive` | Create a new independent live session |
 | `/setkey <id> <key>` | Assign YouTube stream key to a session |
-| `/quality <id> <q>` | Set quality (360p, 720p, 1080p, auto) |
+| `/mode <id> video\|radio\|overlay` | Set streaming mode for the session |
+| `/quality <id> <res>` | Set resolution (1080p, 720p, 360p) |
 | `/start_live <id>` | Start the specific encoder instance |
 | `/stop <id>` | Stop the specific live session |
 | `/livelist` | View all sessions and their status |
